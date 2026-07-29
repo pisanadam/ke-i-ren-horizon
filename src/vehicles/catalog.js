@@ -15,7 +15,7 @@ export const CARS = [
     colours: [0xd8dde3, 0xc23b32, 0x2f4f8f, 0x1b1d21, 0x6fae5a, 0xe8b33c],
     length: 3.95, width: 1.72, wheelBase: 2.5, rideHeight: 0.24,
     bodyHeight: 0.62, cabinHeight: 0.56, wheelRadius: 0.30, wheelWidth: 0.20,
-    cabinBack: -0.74, cabinFront: 0.44, roofBack: 0.08, roofFront: 0.30,
+    cabinBack: -0.86, cabinFront: 0.44, roofBack: 0.06, roofFront: 0.32,
     mass: 1060, power: 6600, topSpeed: 47, grip: 1.05, brake: 12500, steerMax: 0.62,
     stats: { speed: 0.42, accel: 0.5, grip: 0.62, brake: 0.6 }
   },
@@ -52,7 +52,7 @@ export const CARS = [
     colours: [0xd11f1f, 0x111318, 0xf0f0ee, 0x1b4fa0, 0xf5a623],
     length: 4.32, width: 1.92, wheelBase: 2.60, rideHeight: 0.16,
     bodyHeight: 0.50, cabinHeight: 0.42, wheelRadius: 0.33, wheelWidth: 0.27,
-    cabinBack: -0.38, cabinFront: 0.16, roofBack: 0.22, roofFront: 0.30,
+    cabinBack: -0.56, cabinFront: 0.30, roofBack: 0.16, roofFront: 0.34,
     frontWidth: 0.99, noseDrop: 0.12, spoiler: true,
     mass: 1250, power: 14500, topSpeed: 79, grip: 1.36, brake: 19500, steerMax: 0.55,
     stats: { speed: 0.95, accel: 0.92, grip: 0.95, brake: 0.92 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { damp, dampAngle, clamp, lerp } from './util/math.js';
+import { sillHeight } from './vehicles/carModel.js';
 
 export const CAMERA_MODES = [
   { id: 'chase', label: 'Takip' },
@@ -86,9 +87,10 @@ export class CameraRig {
 
     if (mode === 'hood' || mode === 'bumper') {
       const isHood = mode === 'hood';
+      const sill = sillHeight(spec);
       const height = isHood
-        ? spec.rideHeight + spec.bodyHeight + spec.cabinHeight * 0.55
-        : spec.rideHeight + spec.bodyHeight * 0.55;
+        ? sill + spec.bodyHeight + spec.cabinHeight * 0.55
+        : sill + spec.bodyHeight * 0.55;
       const fwd = isHood ? spec.length * 0.12 : spec.length * 0.52;
       this.camera.position.set(
         p.x + sinY * fwd,

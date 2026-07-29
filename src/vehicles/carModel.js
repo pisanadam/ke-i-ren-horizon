@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { lerp, clamp } from '../util/math.js';
 
 /**
  * Procedural car bodies. Everything is built from tapered hulls and boxes so
  * each vehicle in the catalogue reads differently without any asset files.
+ *
+ * The lower body is cut into five slices along its length so the two wheel
+ * arches are real openings rather than wheels poking out of a flat slab —
+ * that single detail is what makes these read as cars instead of bricks.
  *
  * Local space: +Z is forward, +X is right, Y=0 is the road surface.
  */
@@ -78,23 +83,43 @@ function box(w, h, d, x, y, z, colour) {
   return tint(g, colour);
 }
 
+/**
+ * A window pillar that leans with the glasshouse: it runs from (z0,y0) at the
+ * belt line to (z1,y1) at the roof, and narrows inwards on the way up so it
+ * hugs the tumblehome instead of standing proud of the glass.
+ */
+function pillarHull(xBot, xTop, z0, y0, z1, y1, thickness, depth) {
+  const t = thickness / 2;
+  const d = depth / 2;
+  return hull([
+    [xBot - t, y0, z0 - d],
+    [xBot + t, y0, z0 - d],
+    [xBot + t, y0, z0 + d],
+    [xBot - t, y0, z0 + d],
+    [xTop - t, y1, z1 - d],
+    [xTop + t, y1, z1 - d],
+    [xTop + t, y1, z1 + d],
+    [xTop - t, y1, z1 + d]
+  ]);
+}
+
 function wheelGeometry(radius, width) {
   const parts = [];
-  const tyre = new THREE.CylinderGeometry(radius, radius, width, 14);
+  const tyre = new THREE.CylinderGeometry(radius, radius, width, 16);
   tyre.rotateZ(Math.PI / 2);
   parts.push(tint(tyre, 0x15171b));
 
-  const rim = new THREE.CylinderGeometry(radius * 0.62, radius * 0.62, width * 1.04, 12);
+  const rim = new THREE.CylinderGeometry(radius * 0.60, radius * 0.60, width * 1.03, 14);
   rim.rotateZ(Math.PI / 2);
   parts.push(tint(rim, 0xb9bec6));
 
-  const hub = new THREE.CylinderGeometry(radius * 0.22, radius * 0.22, width * 1.1, 8);
+  const hub = new THREE.CylinderGeometry(radius * 0.2, radius * 0.2, width * 1.08, 8);
   hub.rotateZ(Math.PI / 2);
   parts.push(tint(hub, 0x6d737b));
 
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
-    const spoke = new THREE.BoxGeometry(width * 0.9, radius * 0.9, radius * 0.16);
+    const spoke = new THREE.BoxGeometry(width * 0.86, radius * 0.86, radius * 0.15);
     spoke.rotateX(a);
     parts.push(tint(spoke, 0xa8adb5));
   }
@@ -103,11 +128,15 @@ function wheelGeometry(radius, width) {
   return merged;
 }
 
+/** Height of the body sill — the cockpit cameras need to agree with this. */
+export function sillHeight(spec) {
+  return Math.max(spec.rideHeight, spec.wheelRadius + 0.05);
+}
+
 /**
  * Builds all geometry for one vehicle spec.
- * @returns {{paint:THREE.BufferGeometry, detail:THREE.BufferGeometry,
- *            glass:THREE.BufferGeometry, glow:THREE.BufferGeometry,
- *            wheel:THREE.BufferGeometry, wheels:Array, spec:object}}
+ * @returns {{paint, detail, glass, glow, signGlow, headLight, tailLight,
+ *            wheel, wheels, spec, dims}}
  */
 export function buildCarParts(spec) {
   const L = spec.length;
@@ -121,9 +150,13 @@ export function buildCarParts(spec) {
   const paint = [];
   const detail = [];
   const glass = [];
-  const glow = [];
+  const signGeos = [];
+  const headGeos = [];
+  const tailGeos = [];
 
-  const sillY = spec.rideHeight;
+  // The body sill has to clear the wheel centre, otherwise the wheels look
+  // half-swallowed by the bodywork.
+  const sillY = sillHeight(spec);
   const beltY = sillY + spec.bodyHeight;
   const roofY = beltY + spec.cabinHeight;
 
@@ -131,41 +164,52 @@ export function buildCarParts(spec) {
   const noseZ = halfL;
   const tailZ = -halfL;
 
-  // ---------------------------------------------------------------- body
-  const body = section({
-    zBack: tailZ,
-    zFront: noseZ,
-    yBottom: sillY,
-    yTop: beltY,
-    wBack: W * (spec.rearWidth ?? 1),
-    wFront: W * (spec.frontWidth ?? 0.96),
-    wTopBack: W * (spec.rearWidth ?? 1) * 0.99,
-    wTopFront: W * (spec.frontWidth ?? 0.96) * 0.97,
-    yTopBack: beltY,
-    yTopFront: beltY - (spec.noseDrop ?? 0.06)
-  });
-  paint.push(tint(body, 0xffffff));
+  const rearW = spec.rearWidth ?? 1;
+  const frontW = spec.frontWidth ?? 0.96;
+  const noseDrop = spec.noseDrop ?? 0.10;
 
-  // rocker / lower skirt
-  paint.push(box(W * 0.98, sillY * 0.9, L * 0.72, 0, sillY * 0.55, 0, 0xffffff));
+  const tOf = (z) => clamp((z - tailZ) / (noseZ - tailZ), 0, 1);
+  const widthAt = (z) => W * lerp(rearW, frontW, tOf(z));
+  // the bonnet only starts dropping over the front 45% of the car
+  const topAt = (z) => beltY - noseDrop * clamp((tOf(z) - 0.6) / 0.4, 0, 1);
 
-  // ------------------------------------------------------------- cabin
+  // ------------------------------------------------------------ lower body
+  const archHalf = wheelR * 1.24;
+  const archY = wheelR * 2 + 0.04;          // opening clears the top of the tyre
+  const rearArch = [axleR - archHalf, axleR + archHalf];
+  const frontArch = [axleF - archHalf, axleF + archHalf];
+
+  const bodySeg = (zBack, zFront, yBottom) => {
+    if (zFront - zBack < 0.02) return;
+    paint.push(tint(section({
+      zBack, zFront,
+      yBottom,
+      yTop: beltY,
+      wBack: widthAt(zBack), wFront: widthAt(zFront),
+      yTopBack: topAt(zBack), yTopFront: topAt(zFront)
+    }), 0xffffff));
+  };
+
+  bodySeg(tailZ, rearArch[0], sillY);
+  bodySeg(rearArch[0], rearArch[1], archY);
+  bodySeg(rearArch[1], frontArch[0], sillY);
+  bodySeg(frontArch[0], frontArch[1], archY);
+  bodySeg(frontArch[1], noseZ, sillY);
+
+  // floor pan, so you cannot see up into the car through the arches
+  detail.push(box(W * 0.9, 0.07, spec.wheelBase + wheelR, 0, sillY - 0.02, 0, 0x24272b));
+
+  // a thin dark lip around each opening reads as the arch liner
+  for (const z of [axleF, axleR]) {
+    detail.push(box(W + 0.03, 0.06, archHalf * 2 + 0.02, 0, archY - 0.005, z, 0x141619));
+  }
+
+  // ---------------------------------------------------------------- cabin
   const cabBack = spec.cabinBack * halfL;
   const cabFront = spec.cabinFront * halfL;
-
-  // A dark interior block behind the glass: without it the glasshouse reads
-  // as an empty aquarium you can see straight through.
   const cabMid = (cabBack + cabFront) / 2;
   const cabLen = cabFront - cabBack;
   const cabH = spec.cabinHeight;
-  detail.push(box(W * 0.80, cabH * 0.94, cabLen * 0.88, 0, beltY + cabH * 0.47 - 0.02, cabMid, 0x16191d));
-  if (!spec.tall) {
-    // headrests, so there is something to read through the rear screen
-    for (const sx of [-1, 1]) {
-      detail.push(box(W * 0.20, 0.18, 0.12, sx * W * 0.20, beltY + cabH * 0.86, cabMid - cabLen * 0.06, 0x24272c));
-    }
-    detail.push(box(W * 0.74, 0.10, 0.30, 0, beltY + cabH * 0.30, cabFront - cabLen * 0.16, 0x24272c));
-  }
 
   if (spec.tall) {
     // van / bus: a single tall glasshouse
@@ -175,118 +219,150 @@ export function buildCarParts(spec) {
       wBack: W * 0.99, wFront: W * 0.99,
       wTopBack: W * 0.93, wTopFront: W * 0.93
     }), 0xffffff));
-    // window bands
-    const bandH = spec.cabinHeight * 0.52;
-    const bandY = beltY + spec.cabinHeight * 0.52;
-    glass.push(box(W * 1.005, bandH, (cabFront - cabBack) * 0.9, 0, bandY, (cabFront + cabBack) / 2, 0x27384a));
-    glass.push(box(W * 0.86, bandH * 1.15, 0.1, 0, bandY, cabFront + 0.02, 0x27384a));
-    glass.push(box(W * 0.86, bandH, 0.1, 0, bandY, cabBack - 0.02, 0x27384a));
+
+    const bandH = cabH * 0.46;
+    const bandY = beltY + cabH * 0.60;
+    glass.push(box(W * 1.006, bandH, cabLen * 0.9, 0, bandY, cabMid, 0x27384a));
+    glass.push(box(W * 0.88, bandH * 1.1, 0.1, 0, bandY, cabFront + 0.02, 0x27384a));
+    glass.push(box(W * 0.88, bandH * 0.9, 0.1, 0, bandY, cabBack - 0.02, 0x27384a));
+    // dark interior behind the glazing
+    detail.push(box(W * 0.9, bandH * 0.95, cabLen * 0.88, 0, bandY - 0.02, cabMid, 0x1a1d21));
   } else {
-    const roofBack = cabBack + (cabFront - cabBack) * (spec.roofBack ?? 0.18);
-    const roofFront = cabFront - (cabFront - cabBack) * (spec.roofFront ?? 0.3);
+    const roofBack = cabBack + cabLen * (spec.roofBack ?? 0.18);
+    const roofFront = cabFront - cabLen * (spec.roofFront ?? 0.3);
+
     const cabin = hull([
-      [-W * 0.49, beltY, cabBack],
-      [W * 0.49, beltY, cabBack],
-      [W * 0.49, beltY, cabFront],
-      [-W * 0.49, beltY, cabFront],
-      [-W * 0.40, roofY, roofBack],
-      [W * 0.40, roofY, roofBack],
-      [W * 0.40, roofY, roofFront],
-      [-W * 0.40, roofY, roofFront]
+      [-W * 0.47, beltY, cabBack],
+      [W * 0.47, beltY, cabBack],
+      [W * 0.47, beltY, cabFront],
+      [-W * 0.47, beltY, cabFront],
+      [-W * 0.39, roofY, roofBack],
+      [W * 0.39, roofY, roofBack],
+      [W * 0.39, roofY, roofFront],
+      [-W * 0.39, roofY, roofFront]
     ]);
     glass.push(tint(cabin, 0x24323f));
 
-    // roof panel + pillars in body colour
-    paint.push(box(W * 0.83, 0.07, roofFront - roofBack + 0.06, 0, roofY, (roofFront + roofBack) / 2, 0xffffff));
-    const pillar = (x, z, w, d) => paint.push(
-      box(w, spec.cabinHeight, d, x, beltY + spec.cabinHeight / 2, z, 0xffffff)
-    );
-    pillar(-W * 0.44, cabBack + 0.06, 0.07, 0.16);
-    pillar(W * 0.44, cabBack + 0.06, 0.07, 0.16);
-    pillar(-W * 0.455, (cabBack + cabFront) / 2, 0.07, 0.13);
-    pillar(W * 0.455, (cabBack + cabFront) / 2, 0.07, 0.13);
+    // Interior fills only the lower half of the glasshouse, so daylight still
+    // shows through the upper glazing instead of a solid black block.
+    detail.push(box(W * 0.72, cabH * 0.58, cabLen * 0.8, 0, beltY + cabH * 0.28, cabMid, 0x16191d));
+    for (const sx of [-1, 1]) {
+      detail.push(box(W * 0.17, 0.16, 0.11, sx * W * 0.19, beltY + cabH * 0.55, cabMid - cabLen * 0.08, 0x24272c));
+    }
+    detail.push(box(W * 0.68, 0.08, 0.26, 0, beltY + cabH * 0.20, cabFront - cabLen * 0.15, 0x2a2e33));
+
+    // roof panel and pillars in body colour
+    paint.push(box(W * 0.81, 0.08, roofFront - roofBack + 0.06, 0, roofY, (roofFront + roofBack) / 2, 0xffffff));
+
+    // Pillars lean with the glass: an upright post would stand well above the
+    // raked screens and read as a roll cage.
+    const pillar = (z0, z1, depth) => {
+      for (const sx of [-1, 1]) {
+        paint.push(tint(pillarHull(
+          sx * W * 0.472, sx * W * 0.392,
+          z0, beltY, z1, roofY,
+          0.065, depth
+        ), 0xffffff));
+      }
+    };
+    pillar(cabBack + 0.03, roofBack - 0.03, 0.14);       // C-pillar
+    pillar(cabMid, cabMid, 0.10);                        // B-pillar
+    pillar(cabFront - 0.03, roofFront + 0.03, 0.14);     // A-pillar
+    // belt-line trim breaks up the glazing
+    detail.push(box(W * 0.955, 0.05, cabLen * 0.98, 0, beltY + 0.02, cabMid, 0x2a2e33));
   }
 
   // ---------------------------------------------------------- extras
   if (spec.bed) {
-    // pickup load bed
-    const bedBack = tailZ + 0.08;
-    const bedFront = cabBack - 0.05;
-    const wall = 0.1;
-    paint.push(box(W * 0.99, 0.55, wall, 0, beltY + 0.22, bedBack, 0xffffff));
-    paint.push(box(wall, 0.55, bedFront - bedBack, -W * 0.49, beltY + 0.22, (bedBack + bedFront) / 2, 0xffffff));
-    paint.push(box(wall, 0.55, bedFront - bedBack, W * 0.49, beltY + 0.22, (bedBack + bedFront) / 2, 0xffffff));
-    detail.push(box(W * 0.94, 0.05, bedFront - bedBack, 0, beltY + 0.02, (bedBack + bedFront) / 2, 0x3a3d42));
+    const bedBack = tailZ + 0.06;
+    const bedFront = cabBack - 0.04;
+    const wall = 0.09;
+    const bedY = beltY + 0.24;
+    paint.push(box(W * 0.99, 0.5, wall, 0, bedY, bedBack, 0xffffff));
+    paint.push(box(wall, 0.5, bedFront - bedBack, -W * 0.49, bedY, (bedBack + bedFront) / 2, 0xffffff));
+    paint.push(box(wall, 0.5, bedFront - bedBack, W * 0.49, bedY, (bedBack + bedFront) / 2, 0xffffff));
+    detail.push(box(W * 0.94, 0.05, bedFront - bedBack, 0, beltY + 0.01, (bedBack + bedFront) / 2, 0x3a3d42));
   }
 
   if (spec.spoiler) {
-    detail.push(box(W * 0.86, 0.06, 0.32, 0, beltY + 0.30, tailZ + 0.22, 0x1c1e22));
-    detail.push(box(0.07, 0.28, 0.24, -W * 0.34, beltY + 0.16, tailZ + 0.24, 0x1c1e22));
-    detail.push(box(0.07, 0.28, 0.24, W * 0.34, beltY + 0.16, tailZ + 0.24, 0x1c1e22));
+    detail.push(box(W * 0.84, 0.06, 0.3, 0, beltY + 0.3, tailZ + 0.24, 0x1c1e22));
+    for (const sx of [-1, 1]) {
+      detail.push(box(0.07, 0.28, 0.22, sx * W * 0.34, beltY + 0.16, tailZ + 0.26, 0x1c1e22));
+    }
   }
 
   if (spec.roofRack) {
-    for (const x of [-W * 0.3, W * 0.3]) {
-      detail.push(box(0.07, 0.07, (cabFront - cabBack) * 0.8, x, roofY + 0.06, (cabFront + cabBack) / 2, 0x2c3036));
+    for (const sx of [-1, 1]) {
+      detail.push(box(0.07, 0.07, cabLen * 0.78, sx * W * 0.28, roofY + 0.07, cabMid, 0x2c3036));
+    }
+    for (const dz of [-0.3, 0.3]) {
+      detail.push(box(W * 0.6, 0.06, 0.06, 0, roofY + 0.07, cabMid + cabLen * dz, 0x2c3036));
     }
   }
 
   if (spec.taxiSign) {
-    detail.push(box(0.7, 0.16, 0.26, 0, roofY + 0.11, (cabFront + cabBack) / 2 + 0.1, 0x111111));
-    glow.push(box(0.66, 0.13, 0.22, 0, roofY + 0.11, (cabFront + cabBack) / 2 + 0.1, 0xffd23f));
+    detail.push(box(0.72, 0.06, 0.28, 0, roofY + 0.06, cabMid + 0.1, 0x111111));
+    signGeos.push(box(0.66, 0.14, 0.22, 0, roofY + 0.14, cabMid + 0.1, 0xffd23f));
   }
 
   if (spec.lightBar) {
-    const z = (cabFront + cabBack) / 2 + 0.15;
-    detail.push(box(1.15, 0.1, 0.24, 0, roofY + 0.09, z, 0x16181c));
-    glow.push(box(0.5, 0.13, 0.2, -0.3, roofY + 0.12, z, 0x2a5cff));
-    glow.push(box(0.5, 0.13, 0.2, 0.3, roofY + 0.12, z, 0xff2a2a));
+    const z = cabMid + 0.12;
+    detail.push(box(1.15, 0.07, 0.24, 0, roofY + 0.05, z, 0x16181c));
+    signGeos.push(box(0.5, 0.12, 0.2, -0.3, roofY + 0.13, z, 0x2a5cff));
+    signGeos.push(box(0.5, 0.12, 0.2, 0.3, roofY + 0.13, z, 0xff2a2a));
   }
 
   if (spec.acUnit) {
-    detail.push(box(W * 0.5, 0.22, 1.1, 0, roofY + 0.12, cabBack + 0.9, 0xd8d8d4));
+    detail.push(box(W * 0.5, 0.2, 1.1, 0, roofY + 0.11, cabBack + cabLen * 0.18, 0xd8d8d4));
   }
 
   if (spec.bullBar) {
-    detail.push(box(W * 0.9, 0.1, 0.1, 0, sillY + 0.28, noseZ + 0.1, 0x9aa0a8));
-    detail.push(box(0.08, 0.42, 0.1, -W * 0.32, sillY + 0.42, noseZ + 0.1, 0x9aa0a8));
-    detail.push(box(0.08, 0.42, 0.1, W * 0.32, sillY + 0.42, noseZ + 0.1, 0x9aa0a8));
-  }
-
-  // ------------------------------------------------------- bumpers & trim
-  detail.push(box(W * 1.0, 0.3, 0.22, 0, sillY + 0.16, noseZ + 0.02, 0x2a2d32));
-  detail.push(box(W * 1.0, 0.3, 0.22, 0, sillY + 0.16, tailZ - 0.02, 0x2a2d32));
-  detail.push(box(W * 0.62, 0.22, 0.1, 0, beltY - 0.20, noseZ + 0.06, 0x16181c)); // grille
-  detail.push(box(W * 0.30, 0.12, 0.06, 0, sillY + 0.12, tailZ - 0.12, 0xc9ced6)); // plate
-
-  // mirrors
-  for (const sx of [-1, 1]) {
-    detail.push(box(0.06, 0.05, 0.13, sx * W * 0.53, beltY + 0.09, cabFront - 0.15, 0x2a2d32));
-    detail.push(box(0.16, 0.11, 0.07, sx * W * 0.60, beltY + 0.09, cabFront - 0.15, 0x2a2d32));
-  }
-
-  // exhaust
-  detail.push(box(0.11, 0.11, 0.2, W * 0.28, sillY * 0.6, tailZ - 0.1, 0x7d838b));
-
-  // wheel arches
-  for (const z of [axleF, axleR]) {
+    const y = sillY + 0.3;
+    detail.push(box(W * 0.86, 0.09, 0.09, 0, y, noseZ + 0.14, 0x9aa0a8));
     for (const sx of [-1, 1]) {
-      detail.push(box(0.1, wheelR * 0.8, wheelR * 2.25, sx * (W / 2 + 0.01), sillY + wheelR * 0.34, z, 0x1b1d21));
+      detail.push(box(0.08, 0.46, 0.09, sx * W * 0.3, y + 0.2, noseZ + 0.14, 0x9aa0a8));
     }
   }
 
+  // ------------------------------------------------------- bumpers & trim
+  const bumperY = sillY + spec.bodyHeight * 0.20;
+  const bumperH = spec.bodyHeight * 0.34;
+  detail.push(box(widthAt(noseZ) * 0.99, bumperH, 0.10, 0, bumperY, noseZ + 0.03, 0x34383e));
+  detail.push(box(widthAt(tailZ) * 0.99, bumperH, 0.10, 0, bumperY, tailZ - 0.03, 0x34383e));
+
+  // grille and number plates
+  const grilleY = sillY + spec.bodyHeight * 0.62;
+  detail.push(box(W * 0.52, spec.bodyHeight * 0.26, 0.07, 0, grilleY, noseZ + 0.04, 0x16181c));
+  detail.push(box(W * 0.26, 0.12, 0.03, 0, bumperY, noseZ + 0.09, 0xc9ced6));
+  detail.push(box(W * 0.26, 0.12, 0.03, 0, bumperY, tailZ - 0.09, 0xc9ced6));
+
+  // mirrors
+  for (const sx of [-1, 1]) {
+    detail.push(box(0.06, 0.05, 0.13, sx * W * 0.5, beltY + 0.08, cabFront - 0.12, 0x2a2d32));
+    detail.push(box(0.15, 0.11, 0.07, sx * W * 0.57, beltY + 0.08, cabFront - 0.12, 0x2a2d32));
+  }
+
+  // door handles and a shut line, so the flanks are not blank
+  for (const sx of [-1, 1]) {
+    detail.push(box(0.03, 0.05, 0.18, sx * (W / 2 + 0.005), beltY - 0.16, cabMid - cabLen * 0.1, 0x33373d));
+    detail.push(box(0.03, 0.05, 0.18, sx * (W / 2 + 0.005), beltY - 0.16, cabMid + cabLen * 0.2, 0x33373d));
+  }
+
+  // exhaust
+  detail.push(box(0.1, 0.1, 0.18, W * 0.26, sillY - 0.06, tailZ - 0.08, 0x7d838b));
+
   // ------------------------------------------------------------- lights
-  const hy = beltY - 0.16;
-  const hz = noseZ + 0.05;
-  glow.push(box(W * 0.24, 0.13, 0.06, -W * 0.32, hy, hz, 0xfff3d6));
-  glow.push(box(W * 0.24, 0.13, 0.06, W * 0.32, hy, hz, 0xfff3d6));
-  const ty = beltY - 0.14;
-  const tz = tailZ - 0.05;
-  glow.push(box(W * 0.22, 0.15, 0.05, -W * 0.33, ty, tz, 0xd8241f));
-  glow.push(box(W * 0.22, 0.15, 0.05, W * 0.33, ty, tz, 0xd8241f));
-  // indicators
-  glow.push(box(W * 0.1, 0.08, 0.05, -W * 0.44, hy - 0.02, hz, 0xff9a1f));
-  glow.push(box(W * 0.1, 0.08, 0.05, W * 0.44, hy - 0.02, hz, 0xff9a1f));
+  const hy = sillY + spec.bodyHeight * 0.58;
+  const hz = noseZ + 0.035;
+  for (const sx of [-1, 1]) {
+    headGeos.push(box(W * 0.24, 0.14, 0.05, sx * W * 0.31, hy, hz, 0xfff3d6));
+    signGeos.push(box(W * 0.09, 0.09, 0.05, sx * W * 0.45, hy - 0.02, hz, 0xff9a1f));
+  }
+  const ty = sillY + spec.bodyHeight * 0.60;
+  const tz = tailZ - 0.035;
+  for (const sx of [-1, 1]) {
+    tailGeos.push(box(W * 0.22, 0.16, 0.05, sx * W * 0.32, ty, tz, 0xd8241f));
+  }
 
   // ------------------------------------------------------------- wheels
   const wheel = wheelGeometry(wheelR, wheelW);
@@ -308,15 +384,22 @@ export function buildCarParts(spec) {
     valid.forEach((g) => g.dispose());
     return m;
   };
+  const copies = (arr) => arr.map((g) => g.clone());
 
   return {
     paint: merge(paint),
     detail: merge(detail),
     glass: merge(glass),
-    glow: merge(glow),
+    // everything that glows, for the instanced traffic cars
+    glow: merge([...copies(signGeos), ...copies(headGeos), ...copies(tailGeos)]),
+    // …and split apart, so the player's lights can be driven independently
+    signGlow: merge(signGeos),
+    headLight: merge(headGeos),
+    tailLight: merge(tailGeos),
     wheel,
     wheels,
-    spec
+    spec,
+    dims: { sillY, beltY, roofY }
   };
 }
 
@@ -325,7 +408,7 @@ const MATS = {
   detail: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.25 }),
   glass: () => new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.08, metalness: 0.15,
-    transparent: true, opacity: 0.62
+    transparent: true, opacity: 0.68
   }),
   glow: () => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: 0x555555 })
 };
@@ -355,39 +438,17 @@ export function createPlayerCar(spec, colourHex) {
   detailMesh.castShadow = true;
   bodyRoot.add(detailMesh);
 
-  if (parts.glass) {
-    const glassMesh = new THREE.Mesh(parts.glass, glassMat);
-    bodyRoot.add(glassMesh);
-  }
+  if (parts.glass) bodyRoot.add(new THREE.Mesh(parts.glass, glassMat));
 
-  // Lights are split so head / tail / reverse can be driven independently.
+  // Lights are split so head / tail can be driven independently.
   const headMat = new THREE.MeshBasicMaterial({ color: 0x554b38, toneMapped: false });
   const tailMat = new THREE.MeshBasicMaterial({ color: 0x521411, toneMapped: false });
   const signMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: 0xffffff });
 
-  const L = spec.length;
-  const W = spec.width;
-  const beltY = spec.rideHeight + spec.bodyHeight;
-
-  const headGeo = mergeGeometries([
-    box(W * 0.24, 0.13, 0.06, -W * 0.32, beltY - 0.16, L / 2 + 0.05, 0xffffff),
-    box(W * 0.24, 0.13, 0.06, W * 0.32, beltY - 0.16, L / 2 + 0.05, 0xffffff)
-  ], false);
-  const tailGeo = mergeGeometries([
-    box(W * 0.22, 0.15, 0.05, -W * 0.33, beltY - 0.14, -L / 2 - 0.05, 0xffffff),
-    box(W * 0.22, 0.15, 0.05, W * 0.33, beltY - 0.14, -L / 2 - 0.05, 0xffffff)
-  ], false);
-
-  const headMesh = new THREE.Mesh(headGeo, headMat);
-  const tailMesh = new THREE.Mesh(tailGeo, tailMat);
-  bodyRoot.add(headMesh, tailMesh);
-
-  // the roof sign / light bar keeps its own colours
-  let signMesh = null;
-  if (parts.glow) {
-    signMesh = new THREE.Mesh(parts.glow, signMat);
-    bodyRoot.add(signMesh);
-  }
+  if (parts.headLight) bodyRoot.add(new THREE.Mesh(parts.headLight, headMat));
+  if (parts.tailLight) bodyRoot.add(new THREE.Mesh(parts.tailLight, tailMat));
+  if (parts.signGlow) bodyRoot.add(new THREE.Mesh(parts.signGlow, signMat));
+  parts.glow?.dispose();
 
   const wheelMat = MATS.detail();
   const wheelMeshes = parts.wheels.map((w) => {

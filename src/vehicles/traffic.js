@@ -46,6 +46,11 @@ export class Traffic {
       const spec = CAR_BY_ID[entry.id];
       if (!spec) continue;
       const parts = buildCarParts(spec);
+      // instanced traffic uses the single merged glow mesh; the player-only
+      // split-out light geometries would just leak
+      parts.signGlow?.dispose();
+      parts.headLight?.dispose();
+      parts.tailLight?.dispose();
 
       const paintMat = CAR_MATERIALS.paint();
       const detailMat = CAR_MATERIALS.detail();
