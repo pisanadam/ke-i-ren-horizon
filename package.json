@@ -6,13 +6,15 @@
   "description": "Keçiören'de geçen 3D serbest sürüş oyunu",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/build-single.mjs",
+    "build:dist": "vite build",
     "preview": "vite preview --host"
   },
   "dependencies": {
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "vite": "^8.1.5"
   }
 }

@@ -9,24 +9,32 @@ sürebileceğin **10 farklı araç** ve caddeleri dolduran **canlı trafik** var
 
 ---
 
-## Çalıştırma
+## Oynamak için: tek dosya
+
+**[`kecioren-surus.html`](kecioren-surus.html)** — indir, çift tıkla, oyna.
+
+Hepsi bu. Kurulum yok, sunucu yok, internet bağlantısı bile gerekmiyor. Three.js
+motoru, oyunun tüm kodu ve arayüzü bu tek 0,7 MB'lık HTML dosyasının içine
+gömülüdür; dosya açıldığında dışarıya **hiçbir istek** göndermez. USB'ye atıp
+başka bilgisayarda da açabilirsin.
+
+Gereken tek şey WebGL 2 destekli güncel bir tarayıcı (Chrome, Edge, Firefox,
+Safari). Harita, binalar, araçlar, dokular ve sesler dahil **her şey açılışta
+üretilir** — depoda tek bir model, resim veya ses dosyası yoktur.
+
+### Geliştirmek için
+
+Oyunu değiştirmek istersen kaynak, `src/` altında okunabilir modüller hâlinde
+duruyor:
 
 ```bash
 npm install
-npm run dev
+npm run dev      # canlı yenilemeli geliştirme sunucusu
+npm run build    # kaynağı tekrar kecioren-surus.html içine paketler
 ```
 
-Tarayıcıda çıkan adresi aç (varsayılan `http://localhost:5173`).
-Yayına almak için:
-
-```bash
-npm run build     # dist/ klasörünü üretir
-npm run preview   # üretilmiş sürümü test et
-```
-
-Gereken tek şey WebGL 2 destekli güncel bir tarayıcı. Harita, binalar, araçlar,
-dokular ve sesler dahil **her şey çalışma anında üretilir** — depoda tek bir
-model, resim veya ses dosyası yoktur.
+`npm run build` her şeyi tek dosyada toplar; klasik çok dosyalı çıktı isteyen
+olursa `npm run build:dist` de `dist/` üretir.
 
 ---
 
@@ -133,6 +141,8 @@ dönen trafik ışıkları, analog gösterge paneli ve dönebilen küçük harit
 ## Kod düzeni
 
 ```
+kecioren-surus.html      ← oynanan tek dosya (üretilmiş, çift tıkla çalışır)
+scripts/build-single.mjs   her şeyi o tek dosyaya gömen paketleyici
 src/
 ├── main.js              oyun döngüsü, durumlar, gece/gündüz sürücüsü
 ├── textures.js          canvas ile üretilen tüm dokular
