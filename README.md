@@ -60,14 +60,42 @@ npm run build:dist # isteyen olursa klasik çok dosyalı dist/ çıktısı
 | `R` | Aracı yola geri al |
 | `T` | Saati 3 saat ilerlet |
 | `N` | Haritada rastgele bir noktaya ışınlan |
-| `M` | Garaja dön |
+| `M` | Haritayı aç / kapat |
+| `G` | Garaja dön |
 | `X` | Sesi aç/kapat |
 | `F` | Tam ekran |
 | `Esc` / `P` | Duraklat |
 
 Fare ile sürükleyerek çevrede dönebilir, tekerlekle uzaklaşıp
-yakınlaşabilirsin. Oyun kolu (gamepad) ve dokunmatik kumanda da desteklenir.
-Küçük haritanın üstünde tekerlek çevirerek yakınlaştırma yapılır.
+yakınlaşabilirsin. Oyun kolu (gamepad) da desteklenir. Küçük haritanın üstünde
+tekerlek çevirerek yakınlaştırma, üstüne tıklayarak büyük haritayı açma
+yapılır.
+
+### Telefon ve tablet
+
+Oyun dokunmatik cihazlarda tam olarak oynanabilir; kumanda ekrana kendiliğinden
+gelir:
+
+- **Sol yarı** — direksiyon. Parmağını basılı tutup sağa sola kaydır; direksiyon
+  ne kadar kaydırdığına göre kademeli döner (sadece sağ/sol düğmesi değil).
+- **Sağ alt** — GAZ ve FREN pedalları.
+- **Sağ üst** — el freni, klakson, kamera, harita ve duraklat düğmeleri.
+
+Yatay tutuş önerilir; oyun başlarken tam ekrana geçmeyi ve ekranı yatay
+kilitlemeyi dener. Telefonlarda harita, bina ve trafik yoğunluğu ile gölge
+kalitesi otomatik olarak düşürülür. Kademeyi elle seçmek istersen adresin
+sonuna `?kalite=dusuk` veya `?kalite=yuksek` ekleyebilirsin.
+
+### Harita ve hedef işaretleme
+
+`M` tuşu, küçük harita üzerine tıklama ya da mobildeki 🗺 düğmesi tüm ilçeyi
+gösteren haritayı açar. Harita açıkken oyun duraklar.
+
+- **Sürükle** kaydırır, **tekerlek / çift parmak** yakınlaştırır
+- **Haritaya dokun** → oraya bir hedef işareti koyar
+- İşaret koyduğunda küçük haritada bayrak, ekranda ise hedefe olan **yön oku ve
+  uzaklık** belirir; hedefe vardığında kendiliğinden silinir
+- **HEDEFİ SİL** ve **ARACIMA GİT** düğmeleri üst şeritte
 
 ---
 
@@ -139,6 +167,11 @@ doğar/silinir, böylece nerede olursan ol cadde dolu görünür.
 gölgeler, yıldızlar ve ay değişir; hava kararınca apartman pencereleri yanar,
 sokak lambaları asfalta ışık havuzu düşürür, araçlar farlarını yakar.
 
+**Arazi ve yol kotu.** Yollar araziyi izleyen, yumuşatılmış bir profili takip
+eder ve doğal zeminden en fazla birkaç metre ayrılabilir; kavşaklara küçük bir
+doğrusal düzeltmeyle bağlanır. Kalan dolgular yol kenarına inen şevlerle
+desteklenir, böylece hiçbir yerde yol havada asılı kalmaz.
+
 **Diğer.** Lastik izleri ve duman, sentezlenmiş motor sesi (elektrikli araçta
 uğultu), fren/geri/sinyal lambaları, yayalar, park etmiş araçlar, otobüs
 durakları, elektrik telleri, çatılarda su depoları ve çanak antenler,
@@ -154,6 +187,7 @@ scripts/build-single.mjs   her şeyi o tek dosyaya gömen paketleyici
 src/
 ├── index.html           geliştirme şablonu (tek dosyanın iskeleti)
 ├── main.js              oyun döngüsü, durumlar, gece/gündüz sürücüsü
+├── quality.js           masaüstü / telefon kalite kademesi
 ├── textures.js          canvas ile üretilen tüm dokular
 ├── effects.js           lastik izi + duman havuzları
 ├── audio.js             WebAudio ile sentezlenen motor/lastik/klakson
@@ -176,7 +210,12 @@ src/
 │   ├── carModel.js      prosedürel araç gövdeleri
 │   ├── vehicle.js       sürüş fiziği
 │   └── traffic.js       yapay zekâ trafiği
-└── ui/                  gösterge paneli, küçük harita, garaj
+└── ui/
+    ├── hud.js           gösterge paneli
+    ├── mapPlan.js       bir kez çizilen sokak planı
+    ├── minimap.js       köşedeki küçük harita
+    ├── mapview.js       tam ekran harita ve hedef işareti
+    └── menu.js          garaj
 ```
 
 Harita rastgele değil ama **deterministik**: her açılışta aynı şehir kurulur.
@@ -188,9 +227,12 @@ küçük harita otomatik olarak güncellenir.
 
 ## Performans notları
 
-Sahne yaklaşık 1,6 milyon üçgen ve ~170 çizim çağrısı üretir; geometriler
-malzeme başına birleştirilir, ağaçlar/lambalar/trafik `InstancedMesh` ile
-çizilir. Donanım hızlandırmalı bir GPU'da akıcı çalışır. Daha zayıf makinelerde
-`src/main.js` içindeki `setPixelRatio` değerini düşürmek veya
-`src/vehicles/traffic.js` içindeki `MAX_AGENTS` sayısını azaltmak en hızlı
-kazancı verir.
+Masaüstünde sahne yaklaşık 2,2 milyon üçgen ve ~180 çizim çağrısı üretir;
+telefon kademesinde 1,4 milyon üçgen ve ~170 çağrıya iner. Geometriler malzeme
+başına birleştirilir; ağaçlar, lambalar ve trafik `InstancedMesh` ile çizilir.
+Oyuncunun aracı yaklaşık 11.000 üçgenlik yoğun bir ağ kullanır, trafik araçları
+ise ayrı bir düşük detay seviyesiyle üretilir.
+
+Bütün kademe ayarları tek yerde: `src/quality.js`. Harita, bina ve trafik
+yoğunluğu, gölge çözünürlüğü, arazi çözünürlüğü ve piksel oranı buradan
+belirlenir.

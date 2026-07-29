@@ -230,8 +230,23 @@ export class RoadNetwork {
           }
         }
       }
-      road.pts = pts;
-      road.marks = marks;
+      // Inserting junction points can leave two vertices a few centimetres
+      // apart; those micro-segments turn into absurd gradients later on.
+      const markedIdx = new Set(marks.map((m) => m.index));
+      const remap = new Int32Array(pts.length).fill(-1);
+      const kept = [];
+      for (let i = 0; i < pts.length; i++) {
+        const prev = kept[kept.length - 1];
+        const crowded = prev && Math.hypot(pts[i].x - prev.x, pts[i].z - prev.z) < 2.5;
+        if (crowded && !markedIdx.has(i) && i < pts.length - 1) {
+          remap[i] = kept.length - 1;
+          continue;
+        }
+        remap[i] = kept.length;
+        kept.push(pts[i]);
+      }
+      road.pts = kept;
+      road.marks = marks.map((m) => ({ index: remap[m.index], node: m.node }));
     }
 
     // Endpoints of every road also become (degree-1) nodes.
@@ -288,66 +303,126 @@ export class RoadNetwork {
 
   // ------------------------------------------------------------ heights
 
+  /**
+   * Resolves a drivable height for every centreline point.
+   *
+   * The road has to be smooth enough to drive but must also stay close to the
+   * natural ground: interpolating straight between junctions bridges the
+   * valleys and leaves carriageways standing metres up in the air. So each
+   * road follows a *smoothed copy of the terrain*, clamped to MAX_DEV of the
+   * real ground, and junctions are met by adding a small linear correction
+   * rather than by flattening the whole span.
+   */
   _solveHeights() {
-    // 1. sample the natural terrain along every centreline
+    const MAX_DEV = 2.2;      // most a carriageway may cut into or fill over the ground
+
+    // 1. natural ground under every point
     for (const road of this.roads) {
-      for (const p of road.pts) p.y = baseHeight(p.x, p.z);
+      for (const p of road.pts) p.base = baseHeight(p.x, p.z);
     }
 
-    const smoothRoad = (road, pinned) => {
+    // 2. a graded profile: the terrain, smoothed along the road, then pulled
+    //    back to within MAX_DEV of it
+    for (const road of this.roads) {
       const n = road.pts.length;
-      if (n < 3) return;
-      const out = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        let sum = 0;
-        let w = 0;
-        for (let k = -4; k <= 4; k++) {
-          const j = clamp(i + k, 0, n - 1);
-          const weight = 1 / (1 + Math.abs(k));
-          sum += road.pts[j].y * weight;
-          w += weight;
+      let cur = road.pts.map((p) => p.base);
+      const passes = n < 5 ? 1 : 3;
+      for (let pass = 0; pass < passes; pass++) {
+        const out = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          let sum = 0;
+          let w = 0;
+          for (let k = -2; k <= 2; k++) {
+            const j = clamp(i + k, 0, n - 1);
+            const weight = 1 / (1 + Math.abs(k));
+            sum += cur[j] * weight;
+            w += weight;
+          }
+          out[i] = sum / w;
         }
-        out[i] = sum / w;
+        cur = out;
       }
-      for (let i = 0; i < n; i++) road.pts[i].y = out[i];
-      if (pinned) {
-        for (const m of road.marks) {
-          road.pts[m.index].y = this.nodes[m.node].y;
-        }
+      for (let i = 0; i < n; i++) {
+        const p = road.pts[i];
+        p.graded = clamp(cur[i], p.base - MAX_DEV, p.base + MAX_DEV);
+        p.y = p.graded;
+      }
+    }
+
+    // 3. every road meeting at a junction has to agree on one height there
+    const acc = this.nodes.map(() => ({ sum: 0, n: 0 }));
+    for (const road of this.roads) {
+      for (const m of road.marks) {
+        acc[m.node].sum += road.pts[m.index].graded;
+        acc[m.node].n++;
+      }
+    }
+    this.nodes.forEach((node, i) => {
+      const b = baseHeight(node.x, node.z);
+      node.y = acc[i].n ? clamp(acc[i].sum / acc[i].n, b - MAX_DEV, b + MAX_DEV) : b;
+    });
+
+    // 4. graded profile + a linear correction so the ends land on the nodes
+    const blendSpan = (road, i0, i1, y0, y1) => {
+      const g0 = road.pts[i0].graded;
+      const g1 = road.pts[i1].graded;
+      const span = Math.max(1, i1 - i0);
+      for (let i = i0; i <= i1; i++) {
+        const t = (i - i0) / span;
+        road.pts[i].y = road.pts[i].graded + (y0 - g0) * (1 - t) + (y1 - g1) * t;
       }
     };
 
-    // 2. relax: smooth each road, then agree on a shared height per node
-    for (let pass = 0; pass < 4; pass++) {
-      for (const road of this.roads) smoothRoad(road, pass > 0);
-
-      const acc = this.nodes.map(() => ({ sum: 0, n: 0 }));
-      for (const road of this.roads) {
-        for (const m of road.marks) {
-          acc[m.node].sum += road.pts[m.index].y;
-          acc[m.node].n++;
-        }
+    for (const road of this.roads) {
+      if (!road.marks.length) continue;
+      for (let m = 0; m < road.marks.length - 1; m++) {
+        blendSpan(
+          road,
+          road.marks[m].index, road.marks[m + 1].index,
+          this.nodes[road.marks[m].node].y, this.nodes[road.marks[m + 1].node].y
+        );
       }
-      this.nodes.forEach((node, i) => {
-        if (acc[i].n) node.y = acc[i].sum / acc[i].n;
-      });
+      // the stubs before the first and after the last junction
+      const first = road.marks[0];
+      const last = road.marks[road.marks.length - 1];
+      const headShift = this.nodes[first.node].y - road.pts[first.index].graded;
+      for (let i = 0; i < first.index; i++) road.pts[i].y = road.pts[i].graded + headShift;
+      const tailShift = this.nodes[last.node].y - road.pts[last.index].graded;
+      for (let i = last.index + 1; i < road.pts.length; i++) road.pts[i].y = road.pts[i].graded + tailShift;
+
+      for (const m of road.marks) road.pts[m.index].y = this.nodes[m.node].y;
     }
 
-    // 3. final pin so intersections are perfectly flat across roads
-    for (const road of this.roads) {
-      for (const m of road.marks) road.pts[m.index].y = this.nodes[m.node].y;
-      // re-interpolate between pinned marks to remove any residual kink
-      for (let m = 0; m < road.marks.length - 1; m++) {
-        const i0 = road.marks[m].index;
-        const i1 = road.marks[m + 1].index;
-        const y0 = road.pts[i0].y;
-        const y1 = road.pts[i1].y;
-        const span = i1 - i0;
-        for (let i = i0 + 1; i < i1; i++) {
-          const t = (i - i0) / span;
-          road.pts[i].y = lerp(y0, y1, t) * 0.72 + road.pts[i].y * 0.28;
+    // 5. shave off the steepest pitches, but never at the cost of floating
+    //    the road off the ground again — the deviation clamp always wins
+    const MAX_GRADE = 0.17;
+    for (let pass = 0; pass < 14; pass++) {
+      let changed = false;
+      for (const road of this.roads) {
+        const pinned = new Set(road.marks.map((m) => m.index));
+        for (let i = 0; i < road.pts.length - 1; i++) {
+          const a = road.pts[i];
+          const b = road.pts[i + 1];
+          const run = Math.hypot(b.x - a.x, b.z - a.z);
+          if (run < 0.5) continue;
+          const dy = b.y - a.y;
+          const limit = MAX_GRADE * run;
+          if (Math.abs(dy) <= limit) continue;
+          const excess = (Math.abs(dy) - limit) * Math.sign(dy);
+          const aFree = !pinned.has(i);
+          const bFree = !pinned.has(i + 1);
+          if (!aFree && !bFree) continue;
+          if (aFree && bFree) { a.y += excess * 0.5; b.y -= excess * 0.5; }
+          else if (aFree) a.y += excess;
+          else b.y -= excess;
+          changed = true;
         }
+        for (const p of road.pts) {
+          p.y = clamp(p.y, p.base - MAX_DEV * 1.4, p.base + MAX_DEV * 1.4);
+        }
+        for (const m of road.marks) road.pts[m.index].y = this.nodes[m.node].y;
       }
+      if (!changed) break;
     }
 
     // edges inherit the resolved heights (paths share the point objects)

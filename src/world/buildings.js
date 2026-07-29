@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { facadeTexture, shopTexture, roofTexture, FACADE_KEYS } from '../textures.js';
 import { LANDMARKS, MAP } from './mapData.js';
 import { makeRng, clamp, randRange, randPick } from '../util/math.js';
+import { QUALITY } from '../quality.js';
 
 const BAY = 3.4;          // facade texture cell width in metres
 const FLOOR = 3.0;        // facade texture cell height in metres
@@ -118,7 +119,7 @@ export function buildBuildings(network, ground, colliders) {
   const rotM = new THREE.Matrix4();
   const posM = new THREE.Matrix4();
   let count = 0;
-  const MAX = 1500;
+  const MAX = QUALITY.buildings;
 
   for (const edge of network.edges) {
     if (count >= MAX) break;

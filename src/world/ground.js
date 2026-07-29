@@ -3,6 +3,7 @@ import { baseHeight } from './heightfield.js';
 import { MAP, LANDMARKS } from './mapData.js';
 import { clamp, lerp, smoothstep, fbm } from '../util/math.js';
 import { grassTexture } from '../textures.js';
+import { QUALITY } from '../quality.js';
 
 const CORRIDOR = 20;   // metres over which terrain blends into a carriageway
 const SINK = 0.30;     // terrain sits just under the tarmac so it never pokes through
@@ -78,7 +79,7 @@ export class Ground {
 
   build() {
     const size = MAP.groundSize;
-    const step = 8;
+    const step = QUALITY.terrainStep;
     const segs = Math.round(size / step);
     const geo = new THREE.PlaneGeometry(size, size, segs, segs);
     geo.rotateX(-Math.PI / 2);

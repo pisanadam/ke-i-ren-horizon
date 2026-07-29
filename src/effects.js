@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { skidTexture, softDotTexture } from './textures.js';
 import { clamp } from './util/math.js';
+import { QUALITY } from './quality.js';
 
 /**
  * Tyre marks, smoke and dust. Both systems are fixed-size pools written into
  * pre-allocated buffers, so nothing allocates while driving.
  */
 
-const SKID_QUADS = 900;
-const SMOKE_MAX = 260;
+const SKID_QUADS = QUALITY.skidQuads;
+const SMOKE_MAX = QUALITY.smokeMax;
 
 export class Effects {
   constructor(scene) {

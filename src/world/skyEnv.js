@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { clamp, lerp, smoothstep, makeRng } from '../util/math.js';
+import { QUALITY } from '../quality.js';
 
 /**
  * Sky dome, sun, moon-lit night and everything that has to change colour as
@@ -25,13 +26,14 @@ export class SkyEnv {
 
     this.sun = new THREE.DirectionalLight(0xfff0dd, 3.2);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 620;
+    this.sun.shadow.camera.far = QUALITY.shadowFar;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = 0.9;
     const cam = this.sun.shadow.camera;
-    cam.left = -170; cam.right = 170; cam.top = 170; cam.bottom = -170;
+    const ext = QUALITY.shadowExtent;
+    cam.left = -ext; cam.right = ext; cam.top = ext; cam.bottom = -ext;
     cam.updateProjectionMatrix();
     scene.add(this.sun);
     scene.add(this.sun.target);
@@ -158,7 +160,7 @@ export class SkyEnv {
     this._skyColour.lerp(fogDusk, dusk * 0.55);
     this.scene.fog.color.copy(this._skyColour);
     this.scene.fog.near = lerp(90, 300, day);
-    this.scene.fog.far = lerp(900, 1750, day);
+    this.scene.fog.far = lerp(900, 1750, day) * QUALITY.fogFarScale;
     this.renderer.setClearColor(this._skyColour, 1);
 
     // ---- night sky -------------------------------------------------------

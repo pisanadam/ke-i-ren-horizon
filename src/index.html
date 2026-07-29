@@ -2,7 +2,11 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#070b12" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Keçiören Sürüş — 3D Serbest Araba Oyunu</title>
   <meta name="description" content="Ankara Keçiören'de geçen 3D serbest sürüş oyunu. Estergon Kalesi, teleferik, Botanik Park ve trafikle dolu caddeler." />
 </head>
@@ -59,7 +63,7 @@
         <span><kbd>H</kbd> klakson</span>
         <span><kbd>R</kbd> aracı düzelt</span>
         <span><kbd>T</kbd> gece / gündüz</span>
-        <span><kbd>M</kbd> garaj</span>
+        <span><kbd>M</kbd> harita</span>
       </div>
     </div>
   </div>
@@ -85,23 +89,56 @@
       </div>
     </div>
 
+    <!-- işaretlenen hedefin yönü ve uzaklığı -->
+    <div id="waypoint" class="hidden">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 21 L12 16 L4 21 Z" /></svg>
+      <b id="wp-dist">0 m</b>
+    </div>
+
     <div class="hud-bottom">
       <div class="tips" id="tips"></div>
     </div>
 
     <div id="toast"></div>
 
-    <!-- Dokunmatik kumanda -->
+    <!-- ============ DOKUNMATİK KUMANDA ============ -->
     <div id="touch" class="hidden">
-      <div class="tpad left">
-        <button class="tbtn" data-key="left">◀</button>
-        <button class="tbtn" data-key="right">▶</button>
+      <!-- sol yarı tamamen direksiyon: parmağı sağa sola kaydır -->
+      <div id="steer-zone">
+        <div id="steer-dial">
+          <i class="tick"></i>
+          <span id="steer-knob"></span>
+        </div>
+        <label>DİREKSİYON</label>
       </div>
-      <div class="tpad right">
-        <button class="tbtn" data-key="brake">FREN</button>
-        <button class="tbtn big" data-key="gas">GAZ</button>
+
+      <div id="pedals">
+        <button class="pedal brake" data-hold="brake">FREN</button>
+        <button class="pedal gas" data-hold="gas">GAZ</button>
+      </div>
+
+      <div id="touch-buttons">
+        <button class="tbtn" data-hold="handbrake" title="El freni">✋</button>
+        <button class="tbtn" data-tap="horn" title="Klakson">🔊</button>
+        <button class="tbtn" data-tap="camera" title="Kamera">🎥</button>
+        <button class="tbtn" data-tap="map" title="Harita">🗺</button>
+        <button class="tbtn" data-tap="pause" title="Duraklat">⏸</button>
       </div>
     </div>
+  </div>
+
+  <!-- ============ HARİTA ============ -->
+  <div id="mapview" class="hidden">
+    <div class="map-head">
+      <h2>Keçiören Haritası</h2>
+      <div class="map-actions">
+        <button id="map-centre" class="ghost-btn small">ARACIMA GİT</button>
+        <button id="map-clear" class="ghost-btn small">HEDEFİ SİL</button>
+        <button id="map-close" class="ghost-btn small close">KAPAT ✕</button>
+      </div>
+    </div>
+    <canvas id="mapcanvas"></canvas>
+    <p id="map-info" class="map-hint">Hedef koymak için haritaya dokun</p>
   </div>
 
   <!-- ============ DURAKLAT ============ -->
@@ -122,7 +159,8 @@
         <div><kbd>R</kbd><span>Aracı düzelt</span></div>
         <div><kbd>T</kbd><span>Saati ilerlet</span></div>
         <div><kbd>N</kbd><span>Rastgele nokta</span></div>
-        <div><kbd>M</kbd><span>Garaj</span></div>
+        <div><kbd>M</kbd><span>Harita</span></div>
+        <div><kbd>G</kbd><span>Garaj</span></div>
         <div><kbd>Esc</kbd><span>Duraklat</span></div>
       </div>
     </div>

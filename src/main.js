@@ -22,8 +22,11 @@ import { Input } from './input.js';
 import { CameraRig } from './cameraRig.js';
 import { Hud } from './ui/hud.js';
 import { MiniMap } from './ui/minimap.js';
+import { MapPlan } from './ui/mapPlan.js';
+import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
 import { clamp, damp, lerp } from './util/math.js';
+import { QUALITY, IS_TOUCH } from './quality.js';
 
 // Showroom spot: on the ramp below Estergon Kalesi, castle in the backdrop.
 const SHOWCASE = { x: 556, z: -184, yaw: -0.55 };
@@ -38,6 +41,7 @@ class Game {
     this._lensTimer = 0;
     this._showcaseAngle = 0;
     this._hornWas = false;
+    this.waypoint = null;
 
     this.canvas = document.getElementById('scene');
     this.renderer = new THREE.WebGLRenderer({
@@ -45,7 +49,7 @@ class Game {
       antialias: true,
       powerPreference: 'high-performance'
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -128,7 +132,9 @@ class Game {
     this.input.bind(window);
     this.rig = new CameraRig(this.camera, this.canvas);
     this.hud = new Hud();
-    this.minimap = new MiniMap(this.network);
+    this.plan = new MapPlan(this.network);
+    this.minimap = new MiniMap(this.plan);
+    this.mapView = new MapView(this.plan, this);
 
     this._setupPlayer(CARS[0], CARS[0].colours[0]);
     this._setupHeadlights();
@@ -141,6 +147,7 @@ class Game {
 
     document.getElementById('btn-resume').addEventListener('click', () => this.resume());
     document.getElementById('btn-garage').addEventListener('click', () => this.toGarage());
+    this.minimap.canvas.addEventListener('click', () => this.openMap());
 
     await step(100, 'Hazır!');
     document.getElementById('loading').classList.add('hidden');
@@ -202,10 +209,41 @@ class Game {
     if (this.playerCar) this.playerCar.group.add(rig);
   }
 
+  // -------------------------------------------------------------- waypoint
+  setWaypoint(p) {
+    this.waypoint = p ? { x: p.x, z: p.z } : null;
+    const el = document.getElementById('waypoint');
+    el.classList.toggle('hidden', !this.waypoint);
+    if (this.waypoint) {
+      this.hud.showToast('Hedef işaretlendi', 1.8);
+      this.audio.blip(760, 0.1, 0.06);
+    }
+  }
+
+  openMap() {
+    if (this.state !== 'driving' && this.state !== 'paused') return;
+    this._beforeMap = this.state;
+    this.state = 'map';
+    this.input.releaseAll();
+    this.audio.horn(false);
+    this._hornWas = false;
+    this.mapView.show();
+  }
+
+  closeMap() {
+    if (this.state !== 'map') return;
+    this.mapView.close();
+    this.state = this._beforeMap === 'paused' ? 'paused' : 'driving';
+    this.input.clearActions();
+  }
+
   // ----------------------------------------------------------------- states
   toGarage(initial = false) {
     this.state = 'garage';
+    this.mapView?.close();
+    this.input?.releaseAll();
     document.getElementById('hud').classList.add('hidden');
+    document.getElementById('touch').classList.add('hidden');
     document.getElementById('pause').classList.add('hidden');
     this.menu?.show();
     this._placeOnRoad(SHOWCASE.x, SHOWCASE.z, SHOWCASE.yaw);
@@ -219,7 +257,12 @@ class Game {
     this.audio.resume();
     this.menu.hide();
     document.getElementById('hud').classList.remove('hidden');
-    if (this.input.hasTouch) document.getElementById('touch').classList.remove('hidden');
+    if (this.input.hasTouch || IS_TOUCH) {
+      document.getElementById('touch').classList.remove('hidden');
+      // phones only give us the full viewport once we ask, and only from a tap
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+      screen.orientation?.lock?.('landscape').catch(() => {});
+    }
     this.state = 'driving';
     this.input.clearActions();
 
@@ -292,11 +335,17 @@ class Game {
   _handleActions() {
     const input = this.input;
 
+    if (input.consume('map')) {
+      if (this.state === 'map') this.closeMap();
+      else this.openMap();
+    }
     if (input.consume('pause')) {
-      if (this.state === 'driving') this.pause();
+      if (this.state === 'map') this.closeMap();
+      else if (this.state === 'driving') this.pause();
       else if (this.state === 'paused') this.resume();
     }
     if (input.consume('garage')) {
+      if (this.state === 'map') this.closeMap();
       if (this.state === 'driving' || this.state === 'paused') this.toGarage();
       else if (this.state === 'garage') this.startDriving();
     }
@@ -368,7 +417,7 @@ class Game {
     this._handleActions();
 
     const driving = this.state === 'driving';
-    const paused = this.state === 'paused';
+    const paused = this.state === 'paused' || this.state === 'map';
 
     // ---- vehicle -------------------------------------------------------
     if (driving) {
@@ -448,7 +497,40 @@ class Game {
       const district = this._districtName();
       this.hud.setDistrict(district);
       this.hud.update(dt, this.vehicle, { clock: this.skyEnv.clockText, fps: this.fps });
-      this.minimap.draw(this.vehicle, this.traffic, district);
+      this.minimap.draw(this.vehicle, this.traffic, district, this.waypoint);
+      this._updateWaypointHud();
+    }
+  }
+
+  /** Bearing and distance to the marked destination. */
+  _updateWaypointHud() {
+    if (!this.waypoint) return;
+    const v = this.vehicle;
+    const dx = this.waypoint.x - v.position.x;
+    const dz = this.waypoint.z - v.position.z;
+    const dist = Math.hypot(dx, dz);
+
+    // arrive: clear the marker once you are on top of it
+    if (dist < 22) {
+      this.setWaypoint(null);
+      this.hud.showToast('Hedefe vardın', 2.2);
+      this.audio.blip(980, 0.16, 0.08);
+      return;
+    }
+
+    const sinY = Math.sin(v.yaw);
+    const cosY = Math.cos(v.yaw);
+    const fwd = dx * sinY + dz * cosY;
+    const right = -dx * cosY + dz * sinY;
+    const deg = (Math.atan2(right, fwd) * 180) / Math.PI;
+
+    const arrow = document.querySelector('#waypoint svg');
+    if (arrow) arrow.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+    const label = document.getElementById('wp-dist');
+    if (label) {
+      label.textContent = dist >= 1000
+        ? `${(dist / 1000).toFixed(2)} km`
+        : `${Math.round(dist)} m`;
     }
   }
 

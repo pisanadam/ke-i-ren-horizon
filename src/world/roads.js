@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { asphaltTexture, sidewalkTexture } from '../textures.js';
+import { baseHeight } from './heightfield.js';
 import { lerp } from '../util/math.js';
 
 /**
@@ -116,6 +117,53 @@ function junctionPlate(node, radius, y) {
   return geo;
 }
 
+/**
+ * Embankment hanging off the outer edge of a road, down to the hillside.
+ * Where a carriageway is built up over falling ground this is what stops you
+ * seeing daylight underneath it.
+ */
+function embankment(path, offset, side, rise) {
+  if (path.length < 2) return null;
+  const fr = frames(path);
+  const verts = [];
+  const uvs = [];
+  const idx = [];
+  let dist = 0;
+  let anyDrop = false;
+
+  for (let i = 0; i < path.length; i++) {
+    if (i > 0) dist += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+    const p = path[i];
+    const f = fr[i];
+    const ox = p.x + f.rx * offset * side;
+    const oz = p.z + f.rz * offset * side;
+    const top = p.y + rise;
+    const outX = ox + f.rx * side * 2.2;
+    const outZ = oz + f.rz * side * 2.2;
+    const ground = Math.min(baseHeight(outX, outZ), baseHeight(ox, oz)) - 0.5;
+    const bottom = Math.min(top - 0.05, ground);
+    if (top - bottom > 0.35) anyDrop = true;
+
+    verts.push(ox, top, oz);
+    verts.push(outX, bottom, outZ);
+    uvs.push(0, dist / 4, 1, dist / 4);
+  }
+  if (!anyDrop) return null;
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = i * 2;
+    if (side > 0) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 export function buildRoads(network) {
   const group = new THREE.Group();
   group.name = 'roads';
@@ -124,6 +172,7 @@ export function buildRoads(network) {
   const walks = [];
   const kerbs = [];
   const marks = [];
+  const banks = [];
 
   // junction radius per node, so edges can be trimmed back to meet it
   const nodeRadius = new Map();
@@ -170,6 +219,14 @@ export function buildRoads(network) {
       const wr = ribbon(trimmed, hw + 0.4, hw + 0.4 + walkW, kerbTop, 4, 4);
       if (wl) walks.push(wl);
       if (wr) walks.push(wr);
+
+      const outer = hw + 0.4 + walkW;
+      banks.push(embankment(edge.path, outer, 1, y + 0.16));
+      banks.push(embankment(edge.path, outer, -1, y + 0.16));
+    }
+    if (edge.type === 'highway') {
+      banks.push(embankment(edge.path, hw + 0.6, 1, y));
+      banks.push(embankment(edge.path, hw + 0.6, -1, y));
     }
 
     // lane markings
@@ -288,7 +345,14 @@ export function buildRoads(network) {
     valid.forEach((g) => g.dispose());
   };
 
+  const bankMat = new THREE.MeshStandardMaterial({
+    color: 0x8a8058,
+    roughness: 1,
+    side: THREE.DoubleSide
+  });
+
   add(surfaces, asphaltMat, 'asphalt');
+  add(banks, bankMat, 'embankments');
   add(walks, walkMat, 'pavement');
   add(kerbs, kerbMat, 'kerb');
   add(marks, markMat, 'markings');

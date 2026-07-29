@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { buildCarParts, CAR_MATERIALS } from './carModel.js';
 import { CAR_BY_ID, TRAFFIC_MIX, TRAFFIC_COLOURS } from './catalog.js';
 import { makeRng, clamp, damp, randRange } from '../util/math.js';
+import { QUALITY } from '../quality.js';
 
-const MAX_AGENTS = 92;
+const MAX_AGENTS = QUALITY.trafficAgents;
 const SPAWN_MIN = 65;
-const SPAWN_MAX = 360;
-const DESPAWN = 460;
+const SPAWN_MAX = QUALITY.trafficSpawnMax;
+const DESPAWN = QUALITY.trafficSpawnMax + 100;
 
 /**
  * Background traffic. Agents are kinematic: they ride the road graph, keep to

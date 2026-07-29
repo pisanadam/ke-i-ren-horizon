@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAP, LANDMARKS } from './mapData.js';
 import { softDotTexture } from '../textures.js';
 import { makeRng, randRange, randPick } from '../util/math.js';
+import { QUALITY } from '../quality.js';
 
 /**
  * Everything that dresses the streets: pavement trees, lamp columns, signal
@@ -163,7 +164,7 @@ export function buildProps(network, ground, colliders) {
       const gap = edge.major ? 17 : 24;
       for (let s = 8; s < total - 8; s += gap * randRange(rng, 0.75, 1.3)) {
         for (const sd of [-1, 1]) {
-          if (rng() > (edge.major ? 0.72 : 0.42)) continue;
+          if (rng() > (edge.major ? 0.72 : 0.42) * QUALITY.treeDensity) continue;
           const p = at(s);
           const off = hw + 0.4 + walk * randRange(rng, 0.35, 0.7);
           const x = p.x + p.rx * sd * off;
@@ -360,7 +361,7 @@ export function buildProps(network, ground, colliders) {
   }
 
   // ------------------------------------------------------- scattered trees
-  const treeTarget = 3200;
+  const treeTarget = QUALITY.trees;
   let tries = 0;
   while (trunks.length < treeTarget && tries < treeTarget * 6) {
     tries++;
@@ -539,7 +540,7 @@ export function buildProps(network, ground, colliders) {
 
 /** Walkers that shuffle along the pavements; purely cosmetic. */
 function createPedestrians(network, rng) {
-  const COUNT = 90;
+  const COUNT = QUALITY.pedestrians;
   const edges = network.edges.filter((e) => e.type !== 'highway' && e.length > 40);
   const people = [];
 

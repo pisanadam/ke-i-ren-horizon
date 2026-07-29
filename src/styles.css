@@ -347,26 +347,6 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* dokunmatik */
-#touch { position: absolute; inset: 0; pointer-events: none; }
-.tpad { position: absolute; bottom: 20px; display: flex; gap: 12px; pointer-events: auto; }
-.tpad.left { left: 260px; }
-.tpad.right { right: 290px; }
-.tbtn {
-  width: 74px;
-  height: 74px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid var(--stroke);
-  color: var(--ink);
-  font: 700 13px/1 var(--font);
-  backdrop-filter: blur(8px);
-  user-select: none;
-  -webkit-user-select: none;
-}
-.tbtn.big { background: rgba(255, 138, 61, 0.28); border-color: rgba(255, 138, 61, 0.5); }
-.tbtn:active { background: rgba(255, 255, 255, 0.28); }
-
 /* ---------------- duraklat ---------------- */
 .pause-box {
   background: var(--panel);
@@ -396,14 +376,228 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .keymap div { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
 .keymap span { color: var(--muted); }
 
-@media (max-width: 760px) {
-  .hud-right { width: 190px; height: 190px; right: 10px; }
-  #gauge { width: 190px; height: 190px; }
-  .gear-box span { font-size: 26px; }
-  #minimap { width: 150px; height: 150px; }
-  .hud-left { left: 10px; bottom: 10px; }
-  .tpad.left { left: 172px; }
-  .tpad.right { right: 210px; }
+
+/* ---------------- hedef göstergesi ---------------- */
+#waypoint {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 10px;
+  border-radius: 99px;
+  background: var(--panel);
+  border: 1px solid rgba(92, 224, 138, 0.35);
+  backdrop-filter: blur(10px);
+}
+#waypoint svg { width: 17px; height: 17px; fill: var(--good); transition: transform 0.08s linear; }
+#waypoint b { font-size: 12.5px; letter-spacing: 0.04em; color: var(--good); }
+
+/* ---------------- harita ---------------- */
+#mapview {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #05090f;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  gap: 10px;
+}
+.map-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.map-head h2 {
+  margin: 0;
+  font-size: clamp(15px, 3.6vw, 21px);
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+.map-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+button.ghost-btn.small { padding: 8px 14px; font-size: 11.5px; letter-spacing: 0.08em; }
+button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a; }
+
+#mapcanvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background: #0b1017;
+  touch-action: none;
+  cursor: crosshair;
+}
+.map-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+/* ---------------- dokunmatik kumanda ---------------- */
+#touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+}
+
+#steer-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 46%;
+  height: 62%;
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+  gap: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+#steer-zone label {
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: rgba(200, 216, 240, 0.45);
+  pointer-events: none;
+}
+#steer-dial {
+  position: relative;
+  width: min(230px, 60vw);
+  height: 46px;
+  border-radius: 99px;
+  background: rgba(10, 16, 28, 0.6);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+#steer-dial .tick {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.16);
+}
+#steer-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 54px;
+  height: 34px;
+  margin: -17px 0 0 -27px;
+  border-radius: 99px;
+  background: linear-gradient(92deg, #ffc46b, #ff8a3d);
+  box-shadow: 0 4px 14px rgba(255, 138, 61, 0.4);
+  transition: transform 0.05s linear;
+}
+
+#pedals {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+}
+.pedal {
+  width: clamp(92px, 17vw, 128px);
+  height: clamp(66px, 12vh, 92px);
+  border-radius: 18px;
+  border: 1px solid var(--stroke);
+  font: 800 14px/1 var(--font);
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+.pedal.gas { background: rgba(255, 138, 61, 0.3); border-color: rgba(255, 138, 61, 0.5); }
+.pedal.brake { background: rgba(255, 90, 74, 0.22); border-color: rgba(255, 90, 74, 0.42); }
+.pedal.on { filter: brightness(1.5); transform: scale(0.97); }
+
+#touch-buttons {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  top: max(52px, calc(env(safe-area-inset-top) + 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+#touch-buttons .tbtn {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(10, 16, 28, 0.66);
+  border: 1px solid var(--stroke);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+#touch-buttons .tbtn.on { background: rgba(255, 138, 61, 0.34); }
+
+/* ---------------- küçük ekranlar ---------------- */
+@media (max-width: 900px), (max-height: 560px) {
+  .hud-top { top: max(8px, env(safe-area-inset-top)); gap: 5px; }
+  .pill { padding: 4px 9px; font-size: 10.5px; }
+  .hud-right { width: 124px; height: 124px; right: max(14px, env(safe-area-inset-right)); bottom: auto; top: max(52px, calc(env(safe-area-inset-top) + 46px)); }
+  #gauge { width: 124px; height: 124px; }
+  .gear-box { top: 56%; }
+  .gear-box span { font-size: 19px; }
+  .gear-box small { font-size: 11px; }
+  .hud-left { left: max(8px, env(safe-area-inset-left)); top: max(52px, calc(env(safe-area-inset-top) + 46px)); bottom: auto; }
+  #minimap { width: 108px; height: 108px; border-radius: 12px; }
+  .map-label { font-size: 9px; }
   .hud-bottom { display: none; }
+  #toast { font-size: 11.5px; padding: 7px 14px; top: max(46px, calc(env(safe-area-inset-top) + 40px)); }
+  #waypoint { top: auto; bottom: max(10px, env(safe-area-inset-bottom)); }
+
+  /* the gauge sits top-right on phones, so the buttons move under it */
+  #touch-buttons { top: auto; bottom: max(96px, calc(env(safe-area-inset-bottom) + 92px)); right: max(10px, env(safe-area-inset-right)); flex-direction: row; }
+  #pedals { flex-direction: row; align-items: flex-end; }
+  .pedal { width: clamp(74px, 16vw, 104px); height: clamp(56px, 15vh, 78px); font-size: 12px; }
+
+  .garage { flex-direction: column; gap: 10px; }
+  .arrow { width: 40px; height: 40px; font-size: 22px; }
+  .car-stage { padding: 12px 14px 14px; width: 100%; }
+  .desc { font-size: 12px; min-height: 0; }
+  .stats { gap: 8px 12px; margin: 10px 0 8px; }
+  .hints { display: none; }
+  #menu { padding: 3vh 12px 2.5vh; }
+  .pause-box { padding: 18px 18px; }
+  .keymap { display: none; }
+}
+
+/* garajda oklar kartın iki yanında kalsın */
+@media (max-width: 900px) {
   .garage { flex-direction: row; }
+  .arrow { flex: 0 0 auto; }
+}
+
+/* yatay tutuşta daha alçak ekranlar için */
+@media (max-height: 430px) {
+  .hud-right, #gauge { width: 104px; height: 104px; }
+  #minimap { width: 88px; height: 88px; }
+  .pedal { height: clamp(48px, 20vh, 66px); }
+  #steer-dial { height: 38px; }
+  #steer-knob { height: 28px; margin-top: -14px; }
 }

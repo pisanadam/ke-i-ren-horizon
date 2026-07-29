@@ -1,21 +1,16 @@
-import { MAP, LANDMARKS } from '../world/mapData.js';
 import { clamp } from '../util/math.js';
 
-const TILE = 1400;            // offscreen resolution for the baked street plan
-const WORLD = MAP.half * 2 + 240;
-
 /**
- * Street plan minimap. The static network is baked once into an offscreen
- * canvas; each frame only the visible window plus moving blips are drawn.
+ * Corner minimap. Reads the baked street plan and overlays the car, traffic,
+ * landmarks and whatever destination the player has marked on the big map.
  */
 export class MiniMap {
-  constructor(network) {
+  constructor(plan) {
+    this.plan = plan;
     this.canvas = document.getElementById('minimap');
     this.ctx = this.canvas.getContext('2d');
-    this.network = network;
-    this.zoom = 0.42;           // pixels per metre
+    this.zoom = 0.42;                 // pixels per metre
     this.label = document.getElementById('map-label');
-    this._bake();
 
     this.canvas.style.pointerEvents = 'auto';
     this.canvas.addEventListener('wheel', (e) => {
@@ -24,59 +19,7 @@ export class MiniMap {
     }, { passive: false });
   }
 
-  _worldToTile(x, z) {
-    return {
-      x: ((x + WORLD / 2) / WORLD) * TILE,
-      y: ((z + WORLD / 2) / WORLD) * TILE
-    };
-  }
-
-  _bake() {
-    const c = document.createElement('canvas');
-    c.width = TILE;
-    c.height = TILE;
-    const g = c.getContext('2d');
-
-    g.fillStyle = '#10161f';
-    g.fillRect(0, 0, TILE, TILE);
-
-    // parkland patches
-    g.fillStyle = 'rgba(60,110,64,0.5)';
-    for (const l of LANDMARKS) {
-      if (l.id !== 'botanik' && l.id !== 'stadyum') continue;
-      const p = this._worldToTile(l.x, l.z);
-      g.beginPath();
-      g.arc(p.x, p.y, (l.radius / WORLD) * TILE, 0, Math.PI * 2);
-      g.fill();
-    }
-
-    const scale = TILE / WORLD;
-    const drawPass = (filter, width, colour) => {
-      g.strokeStyle = colour;
-      g.lineCap = 'round';
-      g.lineJoin = 'round';
-      for (const edge of this.network.edges) {
-        if (!filter(edge)) continue;
-        g.lineWidth = Math.max(1, edge.width * scale * width);
-        g.beginPath();
-        edge.path.forEach((pt, i) => {
-          const p = this._worldToTile(pt.x, pt.z);
-          i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y);
-        });
-        g.stroke();
-      }
-    };
-
-    drawPass(() => true, 1.5, '#232b36');
-    drawPass((e) => e.minor, 0.9, '#39424f');
-    drawPass((e) => !e.minor && !e.major, 1.0, '#556274');
-    drawPass((e) => e.major && e.type !== 'highway', 1.0, '#8b97a8');
-    drawPass((e) => e.type === 'highway', 1.0, '#d9a441');
-
-    this.tile = c;
-  }
-
-  draw(vehicle, traffic, districtName) {
+  draw(vehicle, traffic, districtName, waypoint) {
     const ctx = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -86,8 +29,6 @@ export class MiniMap {
 
     ctx.save();
     ctx.clearRect(0, 0, W, H);
-
-    // circular mask
     ctx.beginPath();
     ctx.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2);
     ctx.clip();
@@ -96,15 +37,13 @@ export class MiniMap {
     ctx.fillRect(0, 0, W, H);
 
     // baked plan, centred on the car
-    const tileScale = (WORLD / TILE) ;
-    const drawScale = zoom * tileScale;
+    const drawScale = zoom * (this.plan.world / this.plan.tile);
     ctx.save();
     ctx.translate(W / 2, H / 2);
     ctx.scale(drawScale, drawScale);
-    const centre = this._worldToTile(px, pz);
+    const centre = this.plan.toTile(px, pz);
     ctx.translate(-centre.x, -centre.y);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.tile, 0, 0);
+    ctx.drawImage(this.plan.canvas, 0, 0);
     ctx.restore();
 
     const toScreen = (x, z) => ({
@@ -115,7 +54,7 @@ export class MiniMap {
     // landmarks
     ctx.font = '700 8.5px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
-    for (const l of LANDMARKS) {
+    for (const l of this.plan.landmarks) {
       const p = toScreen(l.x, l.z);
       if (p.x < -30 || p.x > W + 30 || p.y < -30 || p.y > H + 30) continue;
       ctx.beginPath();
@@ -139,6 +78,18 @@ export class MiniMap {
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
     });
 
+    // marked destination, clamped to the rim when it is off the map
+    if (waypoint) {
+      const p = toScreen(waypoint.x, waypoint.z);
+      const R = W / 2 - 10;
+      let dx = p.x - W / 2;
+      let dy = p.y - H / 2;
+      const d = Math.hypot(dx, dy);
+      const off = d > R;
+      if (off) { dx = (dx / d) * R; dy = (dy / d) * R; }
+      drawFlag(ctx, W / 2 + dx, H / 2 + dy, off);
+    }
+
     // player arrow
     ctx.save();
     ctx.translate(W / 2, H / 2);
@@ -155,7 +106,6 @@ export class MiniMap {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-
     ctx.restore();
 
     // frame + compass
@@ -175,4 +125,20 @@ export class MiniMap {
       this.label.innerHTML = `${districtName} · <span>${Math.round(px)}, ${Math.round(pz)}</span>`;
     }
   }
+}
+
+export function drawFlag(ctx, x, y, hollow = false) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = hollow ? 'rgba(92,224,138,0.45)' : '#5ce08a';
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = '#0d2b18';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, 1.8, 0, Math.PI * 2);
+  ctx.fillStyle = '#0d2b18';
+  ctx.fill();
+  ctx.restore();
 }
