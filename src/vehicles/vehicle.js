@@ -77,7 +77,9 @@ export class Vehicle {
     const sinY = Math.sin(this.yaw);
     const cosY = Math.cos(this.yaw);
     this._fwd.set(sinY, 0, cosY);
-    this._right.set(cosY, 0, -sinY);
+    // right = forward x up. In a right-handed Y-up space that is -X when the
+    // nose points at +Z; getting this backwards mirrors the whole car.
+    this._right.set(-cosY, 0, sinY);
 
     const vLong = this.velocity.x * this._fwd.x + this.velocity.z * this._fwd.z;
     const vLat = this.velocity.x * this._right.x + this.velocity.z * this._right.z;
@@ -137,22 +139,25 @@ export class Vehicle {
     const maxR = gripMul * load * (input.handbrake ? 0.32 : 1);
     const stiffness = gripMul * load * 7.5;
 
+    // Slip angles at each axle. Yaw about +Y swings the nose toward the car's
+    // left, so a point `a` ahead of the CG gains -w*a of rightward velocity.
     const u = Math.max(Math.abs(vLong), 2.2);
     const dirSign = vLong >= 0 ? 1 : -1;
-    const slipF = Math.atan2(vLat + this.yawRate * halfWB, u) - this.steer * dirSign;
-    const slipR = Math.atan2(vLat - this.yawRate * halfWB, u);
+    const slipF = Math.atan2(vLat - this.yawRate * halfWB, u) - this.steer * dirSign;
+    const slipR = Math.atan2(vLat + this.yawRate * halfWB, u);
 
-    let forceF = clamp(-stiffness * slipF, -maxF, maxF);
-    let forceR = clamp(-stiffness * (input.handbrake ? 0.42 : 1) * slipR, -maxR, maxR);
+    const forceF = clamp(-stiffness * slipF, -maxF, maxF);
+    const forceR = clamp(-stiffness * (input.handbrake ? 0.42 : 1) * slipR, -maxR, maxR);
 
     let aLat = (forceF + forceR) / spec.mass;
-    let yawAcc = (forceF * halfWB - forceR * halfWB) / this.inertia;
+    // a rightward force at the front yaws the nose right, i.e. yaw decreases
+    let yawAcc = (forceR * halfWB - forceF * halfWB) / this.inertia;
 
     // At crawling speed the slip model has nothing to work with, so fall back
     // to a kinematic steering response for parking manoeuvres.
     const kin = clamp(1 - Math.abs(vLong) / 5.5, 0, 1);
     if (kin > 0) {
-      const kinYaw = (vLong / spec.wheelBase) * Math.tan(this.steer);
+      const kinYaw = -(vLong / spec.wheelBase) * Math.tan(this.steer);
       const blendYawRate = this.yawRate + yawAcc * dt;
       const newRate = blendYawRate * (1 - kin) + kinYaw * kin;
       yawAcc = (newRate - this.yawRate) / Math.max(dt, 1e-4);
@@ -244,11 +249,11 @@ export class Vehicle {
       2.0
     );
     this.pitch = damp(this.pitch, -fwdSlope, 9, dt);
-    this.roll = damp(this.roll, sideSlope, 9, dt);
+    this.roll = damp(this.roll, -sideSlope, 9, dt);
 
-    // weight transfer for a bit of life
+    // weight transfer: the body leans away from the corner
     this.bodyPitch = damp(this.bodyPitch, clamp(-aLong * 0.012, -0.09, 0.09), 7, dt);
-    this.bodyRoll = damp(this.bodyRoll, clamp(aLat * 0.011, -0.12, 0.12), 7, dt);
+    this.bodyRoll = damp(this.bodyRoll, clamp(-aLat * 0.011, -0.12, 0.12), 7, dt);
 
     // ------------------------------------------------------------- telemetry
     const wheelCirc = 2 * Math.PI * spec.wheelRadius;
@@ -279,7 +284,7 @@ export class Vehicle {
     car.bodyRoot.rotation.set(this.pitch + this.bodyPitch, 0, this.roll + this.bodyRoll);
 
     for (const holder of car.wheelMeshes) {
-      if (holder.userData.front) holder.rotation.y = this.steer;
+      if (holder.userData.front) holder.rotation.y = -this.steer;
       holder.userData.spin.rotation.x = this.wheelSpin;
     }
   }

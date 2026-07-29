@@ -267,8 +267,8 @@ class Game {
       dx = -dx;
       dz = -dz;
     }
-    const rx = dz;
-    const rz = -dx;
+    const rx = -dz;              // right of travel
+    const rz = dx;
     const lane = Math.min(edge.width * 0.25, edge.width * 0.5 - 1.6);
     this.vehicle.reset(probe.x + rx * lane, probe.z + rz * lane, Math.atan2(dx, dz));
   }
@@ -413,15 +413,16 @@ class Game {
       // Slow turntable. The aim point sits below the car so it frames up in
       // the top half of the screen, clear of the info card.
       const t = this.clockTime * 0.15 + 2.2;
-      const r = 5.6 + this.vehicle.spec.length * 0.78;
+      const r = 4.6 + this.vehicle.spec.length * 0.72;
       this.camera.position.set(
         this.vehicle.position.x + Math.sin(t) * r,
-        this.vehicle.position.y + 2.35 + Math.sin(t * 0.6) * 0.35,
+        this.vehicle.position.y + 2.9 + Math.sin(t * 0.6) * 0.3,
         this.vehicle.position.z + Math.cos(t) * r
       );
+      // aim just under the car so it frames up clear of the info card
       this.camera.lookAt(
         this.vehicle.position.x,
-        this.vehicle.position.y - 0.75,
+        this.vehicle.position.y - 0.30,
         this.vehicle.position.z
       );
       this.camera.fov = 40;

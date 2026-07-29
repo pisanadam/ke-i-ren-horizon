@@ -45,7 +45,7 @@ export class Traffic {
     for (const entry of TRAFFIC_MIX) {
       const spec = CAR_BY_ID[entry.id];
       if (!spec) continue;
-      const parts = buildCarParts(spec);
+      const parts = buildCarParts(spec, 'low');
       // instanced traffic uses the single merged glow mesh; the player-only
       // split-out light geometries would just leak
       parts.signGlow?.dispose();
@@ -157,8 +157,9 @@ export class Traffic {
 
   _place(agent) {
     const p = this.world.network.pointAlong(agent.edge, agent.s, agent.forward, this._probe);
-    const rx = p.dz;
-    const rz = -p.dx;
+    // right of travel = heading x up, so cars keep to the right like in Turkey
+    const rx = -p.dz;
+    const rz = p.dx;
     agent.x = p.x + rx * agent.laneOffset + agent.nudgeX;
     agent.z = p.z + rz * agent.laneOffset + agent.nudgeZ;
     agent.y = p.y;

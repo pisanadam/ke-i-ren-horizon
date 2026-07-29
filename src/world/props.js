@@ -590,11 +590,11 @@ function createPedestrians(network, rng) {
         p.dir = 1;
       }
       network.pointAlong(p.edge, p.s, true, probe);
-      const off = p.edge.width * 0.5 + 0.4 + (p.edge.major ? 2.0 : 1.5) * p.side;
-      const rx = probe.dz;
-      const rz = -probe.dx;
-      const x = probe.x + rx * off * p.side;
-      const z = probe.z + rz * off * p.side;
+      const off = (p.edge.width * 0.5 + 0.4 + (p.edge.major ? 2.0 : 1.5)) * p.side;
+      const rx = -probe.dz;
+      const rz = probe.dx;
+      const x = probe.x + rx * off;
+      const z = probe.z + rz * off;
       const bob = Math.abs(Math.sin(time * p.speed * 3.4 + p.phase)) * 0.06;
       dummy.position.set(x, probe.y + 0.16 + bob, z);
       dummy.rotation.set(0, Math.atan2(probe.dx * p.dir, probe.dz * p.dir), 0);
