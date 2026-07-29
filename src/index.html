@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Keçiören Sürüş — 3D Serbest Araba Oyunu</title>
+  <meta name="description" content="Ankara Keçiören'de geçen 3D serbest sürüş oyunu. Estergon Kalesi, teleferik, Botanik Park ve trafikle dolu caddeler." />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- ============ YÜKLEME ============ -->
+  <div id="loading" class="screen">
+    <div class="loader-box">
+      <div class="brand">
+        <span class="brand-k">KEÇİÖREN</span>
+        <span class="brand-s">SÜRÜŞ</span>
+      </div>
+      <div class="bar"><i id="load-bar"></i></div>
+      <p id="load-text">Keçiören haritası oluşturuluyor…</p>
+    </div>
+  </div>
+
+  <!-- ============ GARAJ / ANA MENÜ ============ -->
+  <div id="menu" class="screen hidden">
+    <div class="menu-head">
+      <div class="brand small">
+        <span class="brand-k">KEÇİÖREN</span>
+        <span class="brand-s">SÜRÜŞ</span>
+      </div>
+      <p class="tagline">Estergon'dan Etlik'e, serbest sürüş · 3D Keçiören haritası</p>
+    </div>
+
+    <div class="garage">
+      <button class="arrow" id="car-prev" aria-label="Önceki araç">‹</button>
+      <div class="car-stage">
+        <div class="car-title">
+          <h2 id="car-name">—</h2>
+          <span id="car-class" class="chip">—</span>
+        </div>
+        <div class="stats">
+          <div class="stat"><label>Hız</label><div class="meter"><i id="st-speed"></i></div></div>
+          <div class="stat"><label>Hızlanma</label><div class="meter"><i id="st-accel"></i></div></div>
+          <div class="stat"><label>Yol Tutuş</label><div class="meter"><i id="st-grip"></i></div></div>
+          <div class="stat"><label>Fren</label><div class="meter"><i id="st-brake"></i></div></div>
+        </div>
+        <p id="car-desc" class="desc">—</p>
+        <div class="colors" id="color-row"></div>
+      </div>
+      <button class="arrow" id="car-next" aria-label="Sonraki araç">›</button>
+    </div>
+
+    <div class="menu-foot">
+      <button id="btn-drive" class="primary">SÜRMEYE BAŞLA</button>
+      <div class="hints">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> sür</span>
+        <span><kbd>Boşluk</kbd> el freni</span>
+        <span><kbd>C</kbd> kamera</span>
+        <span><kbd>H</kbd> klakson</span>
+        <span><kbd>R</kbd> aracı düzelt</span>
+        <span><kbd>T</kbd> gece / gündüz</span>
+        <span><kbd>M</kbd> garaj</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OYUN ARAYÜZÜ ============ -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="pill" id="district">Keçiören</div>
+      <div class="pill" id="clock">08:30</div>
+      <div class="pill ghost" id="perf">60 fps</div>
+    </div>
+
+    <div class="hud-left">
+      <canvas id="minimap" width="230" height="230"></canvas>
+      <div class="map-label" id="map-label">Keçiören · <span id="coord">0, 0</span></div>
+    </div>
+
+    <div class="hud-right">
+      <canvas id="gauge" width="260" height="260"></canvas>
+      <div class="gear-box">
+        <span id="gear">1</span>
+        <small id="kmh">0 <i>km/s</i></small>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div class="tips" id="tips"></div>
+    </div>
+
+    <div id="toast"></div>
+
+    <!-- Dokunmatik kumanda -->
+    <div id="touch" class="hidden">
+      <div class="tpad left">
+        <button class="tbtn" data-key="left">◀</button>
+        <button class="tbtn" data-key="right">▶</button>
+      </div>
+      <div class="tpad right">
+        <button class="tbtn" data-key="brake">FREN</button>
+        <button class="tbtn big" data-key="gas">GAZ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DURAKLAT ============ -->
+  <div id="pause" class="screen hidden">
+    <div class="pause-box">
+      <h2>Duraklatıldı</h2>
+      <div class="pause-stats" id="pause-stats"></div>
+      <button id="btn-resume" class="primary">DEVAM ET</button>
+      <button id="btn-garage" class="ghost-btn">GARAJA DÖN</button>
+      <div class="keymap">
+        <div><kbd>W</kbd> / <kbd>↑</kbd><span>Gaz</span></div>
+        <div><kbd>S</kbd> / <kbd>↓</kbd><span>Fren &amp; geri</span></div>
+        <div><kbd>A</kbd> <kbd>D</kbd><span>Direksiyon</span></div>
+        <div><kbd>Boşluk</kbd><span>El freni (drift)</span></div>
+        <div><kbd>C</kbd><span>Kamera değiştir</span></div>
+        <div><kbd>V</kbd><span>Farlar</span></div>
+        <div><kbd>H</kbd><span>Klakson</span></div>
+        <div><kbd>R</kbd><span>Aracı düzelt</span></div>
+        <div><kbd>T</kbd><span>Saati ilerlet</span></div>
+        <div><kbd>N</kbd><span>Rastgele nokta</span></div>
+        <div><kbd>M</kbd><span>Garaj</span></div>
+        <div><kbd>Esc</kbd><span>Duraklat</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

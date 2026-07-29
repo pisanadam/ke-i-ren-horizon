@@ -11,16 +11,26 @@ sürebileceğin **10 farklı araç** ve caddeleri dolduran **canlı trafik** var
 
 ## Oynamak için: tek dosya
 
-**[`kecioren-surus.html`](kecioren-surus.html)** — indir, çift tıkla, oyna.
+**[`index.html`](index.html)** — indir, çift tıkla, oyna.
 
 Hepsi bu. Kurulum yok, sunucu yok, internet bağlantısı bile gerekmiyor. Three.js
 motoru, oyunun tüm kodu ve arayüzü bu tek 0,7 MB'lık HTML dosyasının içine
-gömülüdür; dosya açıldığında dışarıya **hiçbir istek** göndermez. USB'ye atıp
-başka bilgisayarda da açabilirsin.
+gömülüdür; açıldığında dışarıya **hiçbir istek** göndermez. USB'ye atıp başka
+bilgisayarda da açabilirsin, dilediğin ismi verebilirsin.
 
 Gereken tek şey WebGL 2 destekli güncel bir tarayıcı (Chrome, Edge, Firefox,
 Safari). Harita, binalar, araçlar, dokular ve sesler dahil **her şey açılışta
 üretilir** — depoda tek bir model, resim veya ses dosyası yoktur.
+
+### GitHub Pages
+
+Aynı dosya sitenin kökünde durduğu için Pages'te ek ayar gerekmez: deponun
+Pages kaynağını **bu dal + `/ (root)`** olarak seçmen yeterli, adres açıldığında
+oyun doğrudan başlar. Sayfa yüklenirken tek bir HTTP isteği yapılır (dosyanın
+kendisi); harici script, CDN veya varlık dosyası yoktur.
+
+> Kökteki `index.html` **üretilmiş** dosyadır — elle düzenleme, `npm run build`
+> onu her seferinde yeniden yazar. Geliştirme şablonu `src/index.html`'dir.
 
 ### Geliştirmek için
 
@@ -29,12 +39,10 @@ duruyor:
 
 ```bash
 npm install
-npm run dev      # canlı yenilemeli geliştirme sunucusu
-npm run build    # kaynağı tekrar kecioren-surus.html içine paketler
+npm run dev        # canlı yenilemeli geliştirme sunucusu
+npm run build      # kaynağı tekrar kökteki index.html içine paketler
+npm run build:dist # isteyen olursa klasik çok dosyalı dist/ çıktısı
 ```
-
-`npm run build` her şeyi tek dosyada toplar; klasik çok dosyalı çıktı isteyen
-olursa `npm run build:dist` de `dist/` üretir.
 
 ---
 
@@ -141,9 +149,10 @@ dönen trafik ışıkları, analog gösterge paneli ve dönebilen küçük harit
 ## Kod düzeni
 
 ```
-kecioren-surus.html      ← oynanan tek dosya (üretilmiş, çift tıkla çalışır)
+index.html               ← oynanan tek dosya (üretilmiş; Pages de bunu sunar)
 scripts/build-single.mjs   her şeyi o tek dosyaya gömen paketleyici
 src/
+├── index.html           geliştirme şablonu (tek dosyanın iskeleti)
 ├── main.js              oyun döngüsü, durumlar, gece/gündüz sürücüsü
 ├── textures.js          canvas ile üretilen tüm dokular
 ├── effects.js           lastik izi + duman havuzları
