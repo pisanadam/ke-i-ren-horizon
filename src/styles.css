@@ -12,6 +12,23 @@
 
 * { box-sizing: border-box; }
 
+/* `touch-action` does NOT inherit, so declaring it on <body> alone leaves the
+   canvas and every control at `auto` — which is what let iOS Safari read fast
+   pedal taps as a double tap and zoom the page. `manipulation` is the blanket
+   rule: taps still turn into clicks, double-tap zoom does not happen. */
+* {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Surfaces that are driven with raw pointer events get the stricter rule —
+   no panning, no zooming, no delay of any kind. */
+html, body,
+#scene, #hud, #touch, #mapview, #mapcanvas, .screen,
+#steer-zone, #pedals, #touch-buttons, .pedal, .tbtn, #minimap {
+  touch-action: none;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -22,7 +39,15 @@ html, body {
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
-  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* the menus are the one place where reading beats gesture purity */
+.screen p, .screen h1, .screen h2, .screen li, .screen .car-desc {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 #scene {
@@ -556,7 +581,10 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
 #touch-buttons .tbtn.on { background: rgba(255, 138, 61, 0.34); }
 
 /* ---------------- küçük ekranlar ---------------- */
-@media (max-width: 900px), (max-height: 560px) {
+/* `pointer: coarse` is in the list because the compact HUD is about the touch
+   overlay, not about pixels: an iPad in landscape is 1080 CSS px wide, so a
+   width-only rule left the pedals sitting on top of the speedometer. */
+@media (max-width: 900px), (max-height: 560px), (pointer: coarse) {
   .hud-top { top: max(8px, env(safe-area-inset-top)); gap: 5px; }
   .pill { padding: 4px 9px; font-size: 10.5px; }
   .hud-right { width: 124px; height: 124px; right: max(14px, env(safe-area-inset-right)); bottom: auto; top: max(52px, calc(env(safe-area-inset-top) + 46px)); }
@@ -588,9 +616,23 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
 }
 
 /* garajda oklar kartın iki yanında kalsın */
-@media (max-width: 900px) {
+@media (max-width: 900px), (pointer: coarse) {
   .garage { flex-direction: row; }
   .arrow { flex: 0 0 auto; }
+}
+
+/* Tablets have the room to keep the dials legible — the phone sizes would
+   just look lost on a 1080 px iPad. */
+@media (pointer: coarse) and (min-width: 820px) and (min-height: 620px) {
+  .hud-right, #gauge { width: 176px; height: 176px; }
+  .gear-box span { font-size: 25px; }
+  .gear-box small { font-size: 13px; }
+  #minimap { width: 168px; height: 168px; border-radius: 14px; }
+  .map-label { font-size: 10.5px; }
+  .pill { padding: 5px 12px; font-size: 12px; }
+  #touch-buttons { bottom: max(112px, calc(env(safe-area-inset-bottom) + 108px)); }
+  .pedal { width: clamp(96px, 13vw, 132px); height: clamp(70px, 13vh, 96px); font-size: 13.5px; }
+  #steer-dial { width: min(280px, 40vw); }
 }
 
 /* yatay tutuşta daha alçak ekranlar için */

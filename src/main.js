@@ -26,6 +26,7 @@ import { MapPlan } from './ui/mapPlan.js';
 import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
 import { clamp, damp, lerp } from './util/math.js';
+import { installTouchGuards } from './util/touchGuards.js';
 import { QUALITY, IS_TOUCH } from './quality.js';
 
 // Showroom spot: on the ramp below Estergon Kalesi, castle in the backdrop.
@@ -42,6 +43,8 @@ class Game {
     this._showcaseAngle = 0;
     this._hornWas = false;
     this.waypoint = null;
+
+    installTouchGuards();
 
     this.canvas = document.getElementById('scene');
     this.renderer = new THREE.WebGLRenderer({
@@ -147,7 +150,9 @@ class Game {
 
     document.getElementById('btn-resume').addEventListener('click', () => this.resume());
     document.getElementById('btn-garage').addEventListener('click', () => this.toGarage());
-    this.minimap.canvas.addEventListener('click', () => this.openMap());
+    // pointerup, not click: the double-tap guard can swallow the synthetic
+    // click that follows a fast tap, and the minimap is tapped in a hurry
+    this.minimap.canvas.addEventListener('pointerup', () => this.openMap());
 
     await step(100, 'Hazır!');
     document.getElementById('loading').classList.add('hidden');
