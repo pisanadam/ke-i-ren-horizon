@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ROADS, ROAD_TYPES, FILLER_GRID, LANDMARKS, MAP } from './mapData.js';
+import { ROADS, ROAD_TYPES, DISTRICT_GRIDS, LANDMARKS, MAP } from './mapData.js';
 import { baseHeight } from './heightfield.js';
 import { makeRng, clamp, lerp, distToSegment2, segIntersect, wrapAngle } from '../util/math.js';
 
@@ -51,9 +51,7 @@ export class RoadNetwork {
   /** Minor connectors that turn the arteries into an actual street grid. */
   _addFillerGrid() {
     const rng = makeRng(20240501);
-    const { spacingX, spacingZ, jitter, type, keepChance } = FILLER_GRID;
-    const spec = ROAD_TYPES[type];
-    const H = MAP.half;
+    const spec = ROAD_TYPES.lane;
     const runs = [];
 
     const emit = (pts) => {
@@ -73,36 +71,45 @@ export class RoadNetwork {
       if (current.length >= 3) runs.push(current);
     };
 
-    for (let x = -H + spacingX * 0.5; x < H; x += spacingX) {
-      if (rng() > keepChance) continue;
-      const pts = [];
-      const wob = (rng() - 0.5) * 0.004;
-      for (let z = -H + 30; z <= H - 30; z += 120) {
-        pts.push({
-          x: x + Math.sin(z * 0.006 + x) * jitter + z * wob,
-          z: z + (rng() - 0.5) * 8
-        });
+    // one grid per built-up area, so the hills in between stay empty
+    for (const g of DISTRICT_GRIDS) {
+      const x0 = g.x - g.w / 2;
+      const x1 = g.x + g.w / 2;
+      const z0 = g.z - g.h / 2;
+      const z1 = g.z + g.h / 2;
+      const j = g.jitter;
+
+      for (let x = x0 + g.spacing * 0.5; x < x1; x += g.spacing) {
+        if (rng() > g.keep) continue;
+        const pts = [];
+        const wob = (rng() - 0.5) * 0.004;
+        for (let z = z0; z <= z1; z += 120) {
+          pts.push({
+            x: x + Math.sin(z * 0.006 + x) * j + (z - g.z) * wob,
+            z: z + (rng() - 0.5) * 8
+          });
+        }
+        if (pts.length >= 3) emit(pts);
       }
-      emit(pts);
-    }
-    for (let z = -H + spacingZ * 0.5; z < H; z += spacingZ) {
-      if (rng() > keepChance) continue;
-      const pts = [];
-      const wob = (rng() - 0.5) * 0.004;
-      for (let x = -H + 30; x <= H - 30; x += 120) {
-        pts.push({
-          x: x + (rng() - 0.5) * 8,
-          z: z + Math.cos(x * 0.0055 + z) * jitter + x * wob
-        });
+      for (let z = z0 + g.spacing * 0.5; z < z1; z += g.spacing) {
+        if (rng() > g.keep) continue;
+        const pts = [];
+        const wob = (rng() - 0.5) * 0.004;
+        for (let x = x0; x <= x1; x += 120) {
+          pts.push({
+            x: x + (rng() - 0.5) * 8,
+            z: z + Math.cos(x * 0.0055 + z) * j + (x - g.x) * wob
+          });
+        }
+        if (pts.length >= 3) emit(pts);
       }
-      emit(pts);
     }
 
     let n = 0;
     for (const pts of runs) {
       this.roads.push({
         name: `Sokak ${++n}`,
-        type,
+        type: 'lane',
         major: false,
         minor: true,
         raw: pts,

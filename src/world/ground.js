@@ -11,8 +11,15 @@ const KERB = 0.16;     // kerb height, matching the pavement meshes in roads.js
 
 /** Areas that should read as parkland rather than dry Ankara hillside. */
 const GREENS = LANDMARKS
-  .filter((l) => l.id === 'botanik' || l.id === 'stadyum')
+  .filter((l) => l.green)
   .map((l) => ({ x: l.x, z: l.z, r: l.radius * 1.15 }));
+
+const TONE = {
+  dry: new THREE.Color(0x7d7f4c),
+  dryLight: new THREE.Color(0x99945c),
+  park: new THREE.Color(0x5f8f47),
+  rock: new THREE.Color(0x8a8172)
+};
 
 export class Ground {
   constructor(network) {
@@ -77,38 +84,105 @@ export class Ground {
     return false;
   }
 
-  build() {
+  /** Hillside colour at a point — shared by the patches and the backdrop. */
+  _shade(x, z, out) {
+    const dry = TONE.dry;
+    out.copy(dry).lerp(TONE.dryLight, fbm(x * 0.008, z * 0.008, 3));
+    if (this.isGreen(x, z)) out.lerp(TONE.park, 0.78);
+
+    // expose bare rock where the hillside gets steep
+    const hx = baseHeight(x + 6, z) - baseHeight(x - 6, z);
+    const hz = baseHeight(x, z + 6) - baseHeight(x, z - 6);
+    const slope = Math.hypot(hx, hz) / 12;
+    out.lerp(TONE.rock, clamp((slope - 0.30) * 1.7, 0, 0.7));
+    return out;
+  }
+
+  /** The one material every terrain mesh shares. */
+  material() {
+    if (!this._mat) {
+      const tex = grassTexture();
+      tex.repeat.set(MAP.groundSize / 14, MAP.groundSize / 14);
+      this._mat = new THREE.MeshStandardMaterial({
+        map: tex, vertexColors: true, roughness: 0.98, metalness: 0
+      });
+    }
+    return this._mat;
+  }
+
+  /**
+   * One square of detailed terrain, road-conforming.
+   *
+   * Patch vertices land on a global lattice, so neighbouring patches share
+   * their edge positions exactly. Normals are taken analytically from the
+   * height field rather than from the patch's own triangles — a patch cannot
+   * see over its own border, and per-patch normals leave a lit seam along
+   * every join.
+   */
+  buildPatch(x0, z0, size, step) {
+    const segs = Math.max(1, Math.round(size / step));
+    const geo = new THREE.PlaneGeometry(size, size, segs, segs);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(x0 + size / 2, 0, z0 + size / 2);
+
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const normals = geo.attributes.normal;
+    const tmp = new THREE.Color();
+    const eps = Math.max(1.5, step * 0.5);
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      pos.setY(i, this.terrainHeight(x, z));
+
+      const hL = this.terrainHeight(x - eps, z);
+      const hR = this.terrainHeight(x + eps, z);
+      const hD = this.terrainHeight(x, z - eps);
+      const hU = this.terrainHeight(x, z + eps);
+      const nx = hL - hR;
+      const nz = hD - hU;
+      const ny = 2 * eps;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      normals.setXYZ(i, nx / len, ny / len, nz / len);
+
+      this._shade(x, z, tmp);
+      colors[i * 3] = tmp.r;
+      colors[i * 3 + 1] = tmp.g;
+      colors[i * 3 + 2] = tmp.b;
+    }
+
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mesh = new THREE.Mesh(geo, this.material());
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    return mesh;
+  }
+
+  /**
+   * Coarse hillside covering the whole world, built once. The detailed
+   * patches sit on top of it near the player; further out this is all there
+   * is, which is what fills the horizon with Ankara's hills.
+   */
+  buildBackdrop() {
     const size = MAP.groundSize;
-    const step = QUALITY.terrainStep;
+    const step = QUALITY.backdropStep;
     const segs = Math.round(size / step);
     const geo = new THREE.PlaneGeometry(size, size, segs, segs);
     geo.rotateX(-Math.PI / 2);
 
     const pos = geo.attributes.position;
     const colors = new Float32Array(pos.count * 3);
-    const dry = new THREE.Color(0x7d7f4c);
-    const dryLight = new THREE.Color(0x99945c);
-    const park = new THREE.Color(0x5f8f47);
-    const rock = new THREE.Color(0x8a8172);
     const tmp = new THREE.Color();
 
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const inMap = Math.abs(x) < MAP.half + 60 && Math.abs(z) < MAP.half + 60;
-      const y = inMap ? this.terrainHeight(x, z) : baseHeight(x, z);
-      pos.setY(i, y);
-
-      const variation = fbm(x * 0.008, z * 0.008, 3);
-      tmp.copy(dry).lerp(dryLight, variation);
-      if (this.isGreen(x, z)) tmp.lerp(park, 0.78);
-
-      // expose bare rock where the hillside gets steep
-      const hx = baseHeight(x + 6, z) - baseHeight(x - 6, z);
-      const hz = baseHeight(x, z + 6) - baseHeight(x, z - 6);
-      const slope = Math.hypot(hx, hz) / 12;
-      tmp.lerp(rock, clamp((slope - 0.30) * 1.7, 0, 0.7));
-
+      // no road conforming out here — it would cost a query per vertex and
+      // the detailed patches cover everywhere the player can actually drive
+      pos.setY(i, baseHeight(x, z) - 0.6);
+      this._shade(x, z, tmp);
       colors[i * 3] = tmp.r;
       colors[i * 3 + 1] = tmp.g;
       colors[i * 3 + 2] = tmp.b;
@@ -117,19 +191,9 @@ export class Ground {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
-    const tex = grassTexture();
-    tex.repeat.set(size / 14, size / 14);
-
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      vertexColors: true,
-      roughness: 0.98,
-      metalness: 0
-    });
-
-    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh = new THREE.Mesh(geo, this.material());
     this.mesh.receiveShadow = true;
-    this.mesh.name = 'terrain';
+    this.mesh.name = 'terrain-backdrop';
     this.mesh.matrixAutoUpdate = false;
     this.mesh.updateMatrix();
     return this.mesh;

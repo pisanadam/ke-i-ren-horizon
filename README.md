@@ -1,9 +1,10 @@
-# Keçiören Sürüş
+# Ankara Sürüş
 
-Ankara'nın Keçiören ilçesinde geçen **3D serbest sürüş oyunu**. Tarayıcıda
-çalışır, hiçbir eklenti veya indirme gerektirmez. Estergon Kalesi'nden Etlik'e,
-Kalaba'dan Kuzey Çevre Yolu'na kadar tepelere kurulmuş bir şehir; içinde
-sürebileceğin **10 farklı araç** ve caddeleri dolduran **canlı trafik** var.
+Ankara'da geçen **3D serbest sürüş oyunu**. Tarayıcıda çalışır, hiçbir eklenti
+veya indirme gerektirmez. Keçiören'in tepelerinden Ulus'a, Kızılay'dan
+Çankaya'ya, Anıtkabir'den Sincan'a ve Esenboğa'ya uzanan **10 × 10 km'lik bir
+şehir**; içinde sürebileceğin **10 farklı araç**, caddeleri dolduran **canlı
+trafik** ve viyadükleri üzerinde gerçekten işleyen **beş hatlı metro** var.
 
 ![tür](https://img.shields.io/badge/tür-serbest%20sürüş-ff8a3d) ![motor](https://img.shields.io/badge/motor-three.js-34d3ff) ![lisans](https://img.shields.io/badge/varlık-%100%20prosedürel-5ce08a)
 
@@ -101,15 +102,28 @@ gösteren haritayı açar. Harita açıkken oyun duraklar.
 
 ## Haritada ne var
 
-Harita 1.8 × 1.8 km'lik bir alan ve Keçiören'in gerçek dokusunu takip eder:
-vadi tabanında yoğun apartmanlar, yamaçlarda alçak katlı evler, tepelerde
-manzara.
+Harita 9.2 × 9.2 km'lik bir alan. Ankara'nın gerçek yerleşimi yaklaşık 3,5'te
+bire sıkıştırılmıştır: ilçeler doğru yönde ve doğru sırada, ama aralarındaki
+mesafe bir oyunda sürülebilecek kadar. Kuzeyde Keçiören'in vadisi, ortada Ulus
+ve kale tepesi, güneyde Kızılay ve Çankaya sırtı, batıda ova boyunca Etimesgut
+ve Sincan, doğuda Elmadağ'ın etekleri.
 
-**Ana arterler** — Fatih Caddesi (vadi boyunca uzanan omurga), Kızlarpınarı,
-Gazino, Sanatoryum, Estergon, Aktepe Bulvarı, Şehit Cengiz Karaca Caddesi,
-Etlik Caddesi, Subayevleri, Aşağı Eğlence, Kalaba Caddesi, Bağlum Yolu ve
-haritayı kuzeyden kapatan Kuzey Çevre Yolu. Aralarını ara sokaklardan oluşan
-bir ızgara doldurur.
+**Ana arterler** — Atatürk Bulvarı (Keçiören'den Çankaya'ya inen omurga),
+İstanbul Yolu (Batıkent–Etimesgut–Sincan), Eskişehir Yolu (Söğütözü–ODTÜ–
+Çayyolu), Samsun Yolu (Mamak), Esenboğa Yolu, Konya Yolu, Anıtkabir ve Cebeci
+caddeleri, şehri saran Çevre Yolu, ve kuzeyde Keçiören'in kendi caddeleri
+(Fatih, Kızlarpınarı, Gazino, Sanatoryum, Estergon, Kalaba…). Yerleşim
+alanlarının içini ara sokak ızgaraları doldurur; aradaki tepeler boştur.
+
+**İlçeler** — Keçiören, Altındağ/Ulus, Çankaya, Kızılay, Cebeci, Dikmen,
+Bahçelievler, Balgat, Söğütözü, Yenimahalle, Ostim, Batıkent, Etimesgut,
+Sincan, ODTÜ/Bilkent/Çayyolu, Mamak, Pursaklar, Esenboğa ve Gölbaşı.
+
+**Metro** — beş hat, elli istasyon, viyadük üzerinde: **M4** Keçiören–Kızılay,
+**M1** Kızılay–Batıkent, **M3** Batıkent–Sincan, **M2** Kızılay–Çayyolu ve
+**Ankaray** AŞTİ–Dikimevi. Trenler istasyondan kalkar, hat hızına çıkar, bir
+sonraki perona tam yerinde frenler, bekler ve yeniden hareket eder; hattın
+ucunda yön değiştirir. Hatlar haritada kendi renkleriyle çizilidir.
 
 **Yapılar**
 
@@ -122,6 +136,10 @@ bir ızgara doldurur.
   **Aktepe Stadyumu**, **Keçiören Botanik Parkı** (gölet, sera, kameriye),
   **Keçiören Metro İstasyonu**, **Neşet Ertaş Sanat Merkezi**,
   **Kalaba Pazar Yeri**, **Keçiören AVM**
+- **Anıtkabir**, **Ankara Kalesi**, **Kocatepe Camii**, **TBMM**, **Atakule**,
+  **Gençlik Parkı**, **AŞTİ**, **Ankara Hipodromu**, **19 Mayıs Stadyumu**,
+  **ODTÜ** ve **Bilkent** kampüsleri, **Armada AVM**, **Esenboğa Havalimanı**,
+  **Mogan Gölü**, **Ostim Sanayi**
 
 **Mahalleler** — Aşağı ve Yukarı Eğlence, Etlik, Subayevleri, Kalaba, Aktepe,
 Kuşcağız, Estergon, Sanatoryum, Güçlükaya, Esertepe, Yayla, İncirli, Ovacık,
@@ -172,8 +190,21 @@ eder ve doğal zeminden en fazla birkaç metre ayrılabilir; kavşaklara küçü
 doğrusal düzeltmeyle bağlanır. Kalan dolgular yol kenarına inen şevlerle
 desteklenir, böylece hiçbir yerde yol havada asılı kalmaz.
 
+**Metro.** Beş hat kendi viyadüğü üzerinde kurulur: kirişler, ayaklar, raylar,
+ada peronlar, saçaklar ve merdiven kuleleri. Ayaklar asfaltın üstüne düşmesin
+diye her biri yoldan uzağa kaydırılır; kaydıracak yer yoksa o açıklık boş
+geçilir. Trenler bir zaman çizelgesiyle işler ve oyuncudan uzaktakiler çizim
+dışı bırakılır.
+
+**Dünya akışı.** Ankara 90 km²; hepsini tek seferde örgülemek dakikalar
+sürerdi. Uzak manzara tek ve kaba bir arazi meshiyle karşılanır, oyuncunun
+çevresindeki ayrıntılı arazi ise 620 m'lik karelere bölünüp araba yaklaştıkça
+kare başına birkaç milisaniyelik bütçeyle örülür ve bir daha atılmaz. 150
+km/h'te bile arabanın altında örülmemiş zemin kalmaz.
+
 **Diğer.** Lastik izleri ve duman, sentezlenmiş motor sesi (elektrikli araçta
-uğultu), fren/geri/sinyal lambaları, yayalar, park etmiş araçlar, otobüs
+uğultu), hıza ve pedala bağlı **fren sesi** (yavaşlarken gıcırtıya döner),
+fren/geri/sinyal lambaları, yayalar, park etmiş araçlar, otobüs
 durakları, elektrik telleri, çatılarda su depoları ve çanak antenler,
 dönen trafik ışıkları, analog gösterge paneli ve dönebilen küçük harita.
 

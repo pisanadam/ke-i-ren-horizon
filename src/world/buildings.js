@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { facadeTexture, shopTexture, roofTexture, FACADE_KEYS } from '../textures.js';
-import { LANDMARKS, MAP } from './mapData.js';
+import { LANDMARKS, MAP, DISTRICT_GRIDS } from './mapData.js';
 import { makeRng, clamp, randRange, randPick } from '../util/math.js';
 import { QUALITY } from '../quality.js';
 
@@ -108,11 +108,20 @@ export function buildBuildings(network, ground, colliders) {
   const inLandmark = (x, z) =>
     LANDMARKS.some((l) => Math.hypot(x - l.x, z - l.z) < l.radius);
 
-  // How tall the neighbourhood builds: the valley floor is dense and high-rise,
-  // the hillsides taper down to low-rise.
+  // How tall the neighbourhood builds. Ankara is not one blob: each district
+  // has its own core that tapers off into empty hillside, so height follows
+  // the distance to the nearest built-up area rather than to the map centre.
   const density = (x, z) => {
-    const fromCentre = Math.hypot(x * 0.85, z) / MAP.half;
-    return clamp(1.15 - fromCentre * 1.05, 0.06, 1);
+    let best = 0;
+    for (const g of DISTRICT_GRIDS) {
+      const dx = Math.abs(x - g.x) / (g.w * 0.5 + 340);
+      const dz = Math.abs(z - g.z) / (g.h * 0.5 + 340);
+      const d = Math.max(dx, dz);
+      if (d >= 1) continue;
+      // the middle of a district is solid, the fringe thins out
+      best = Math.max(best, 1 - d * d);
+    }
+    return best;
   };
 
   const mtx = new THREE.Matrix4();
@@ -121,7 +130,16 @@ export function buildBuildings(network, ground, colliders) {
   let count = 0;
   const MAX = QUALITY.buildings;
 
-  for (const edge of network.edges) {
+  // Shuffled, so the budget spreads over the whole city instead of being
+  // spent entirely on whichever district happens to be first in the list.
+  const order = network.edges.map((e, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+
+  for (const ei of order) {
+    const edge = network.edges[ei];
     if (count >= MAX) break;
     if (edge.type === 'highway') continue;
     const hw = edge.width * 0.5;
@@ -152,6 +170,8 @@ export function buildBuildings(network, ground, colliders) {
       while (s < total - 12 && count < MAX) {
         const p = at(s);
         const dens = density(p.x, p.z);
+        // motorways crossing the hills between districts stay empty
+        if (dens < 0.05 || rng() > 0.25 + dens * 0.9) { s += 30; continue; }
 
         // ---- pick a footprint --------------------------------------------
         const wide = rng() < 0.35 + dens * 0.3;
@@ -174,6 +194,9 @@ export function buildBuildings(network, ground, colliders) {
 
         const near = network.nearestRoad(cx, cz);
         if (!near || near.dist < near.halfWidth + 4.5) { s += step; continue; }
+        // metro piers and station stairs are already down; do not build over them
+        const facing = Math.atan2(p.dx, p.dz);
+        if (colliders.overlaps(cx, cz, w * 0.5, depth * 0.5, facing, 1.5)) { s += step; continue; }
 
         const slope = ground.slopeAt(cx, cz, 8);
         if (slope > 0.34) { s += step; continue; }

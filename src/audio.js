@@ -69,6 +69,28 @@ export class AudioEngine {
     this.screech.gain.gain.value = 0;
     this.gravel = this._noiseSource(this.noiseBuffer, 'bandpass', 620, 1.6);
     this.gravel.gain.gain.value = 0;
+
+    // ----------------------------------------------------------- brakes
+    // Two layers: a broad hiss of pad on disc, and a narrow resonant peak
+    // that only comes up at low speed — the squeal as the car settles.
+    this.brakeHiss = this._noiseSource(this.noiseBuffer, 'bandpass', 2600, 1.1);
+    this.brakeHiss.gain.gain.value = 0;
+
+    this.squeal = ctx.createOscillator();
+    this.squeal.type = 'sawtooth';
+    this.squeal.frequency.value = 2350;
+    this.squealFilter = ctx.createBiquadFilter();
+    this.squealFilter.type = 'bandpass';
+    this.squealFilter.frequency.value = 2350;
+    this.squealFilter.Q.value = 14;
+    this.squealGain = ctx.createGain();
+    this.squealGain.gain.value = 0;
+    this.squeal.connect(this.squealFilter);
+    this.squealFilter.connect(this.squealGain);
+    this.squealGain.connect(this.master);
+    this.squeal.start();
+
+    this._brakeWobble = 0;
   }
 
   _makeNoise(seconds) {
@@ -171,6 +193,41 @@ export class AudioEngine {
 
     const gravel = !v.onRoad ? clamp(speed / 25, 0, 1) : 0;
     this.gravel.gain.gain.setTargetAtTime(gravel * 0.1, now, 0.12);
+
+    this._brakes(v, input, now, dt, speed);
+  }
+
+  /**
+   * Brakes. The pads only make a noise while they are actually being pressed
+   * against a turning disc, so everything here is gated on both the pedal and
+   * the car still moving.
+   */
+  _brakes(v, input, now, dt, speed) {
+    const pedal = clamp(input.brake, 0, 1);
+    const hand = input.handbrake ? 0.85 : 0;
+    // reversing out of a parking space is the throttle, not the brakes
+    const braking = v.forwardSpeed > 0.4 ? pedal : 0;
+    const press = Math.max(braking, hand);
+    const rolling = clamp((speed - 0.6) / 5, 0, 1);
+
+    // A little tremble in the pressure, like a pulsing ABS pedal, but only
+    // when the car is hard on the brakes and the tyres are near the limit.
+    const abs = press > 0.55 && v.slip > 0.22 && speed > 6 ? 1 : 0;
+    this._brakeWobble += dt * (abs ? 46 : 12);
+    const wobble = abs ? 0.72 + 0.28 * Math.sin(this._brakeWobble) : 1;
+
+    const hiss = press * rolling * wobble;
+    this.brakeHiss.gain.gain.setTargetAtTime(hiss * 0.085, now, 0.035);
+    this.brakeHiss.filter.frequency.setTargetAtTime(
+      1400 + clamp(speed / 40, 0, 1) * 2600, now, 0.06
+    );
+
+    // The squeal lives in the last few km/h: strongest as the car stops.
+    const slow = clamp(1 - Math.abs(speed - 2.4) / 2.4, 0, 1);
+    this.squealGain.gain.setTargetAtTime(press * slow * 0.05, now, 0.05);
+    const f = 1750 + slow * 900 + Math.sin(this._brakeWobble * 0.7) * 110;
+    this.squeal.frequency.setTargetAtTime(f, now, 0.05);
+    this.squealFilter.frequency.setTargetAtTime(f, now, 0.05);
   }
 
   horn(on) {

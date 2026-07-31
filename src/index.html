@@ -7,8 +7,8 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Keçiören Sürüş — 3D Serbest Araba Oyunu</title>
-  <meta name="description" content="Ankara Keçiören'de geçen 3D serbest sürüş oyunu. Estergon Kalesi, teleferik, Botanik Park ve trafikle dolu caddeler." />
+  <title>Ankara Sürüş — 3D Serbest Araba Oyunu</title>
+  <meta name="description" content="Ankara'da geçen 3D serbest sürüş oyunu. Keçiören'den Kızılay'a, Anıtkabir'den Sincan'a, çalışan metrosu ve trafiğiyle bütün şehir." />
 </head>
 <body>
   <canvas id="scene"></canvas>
@@ -21,7 +21,7 @@
         <span class="brand-s">SÜRÜŞ</span>
       </div>
       <div class="bar"><i id="load-bar"></i></div>
-      <p id="load-text">Keçiören haritası oluşturuluyor…</p>
+      <p id="load-text">Ankara haritası oluşturuluyor…</p>
     </div>
   </div>
 
@@ -32,7 +32,7 @@
         <span class="brand-k">KEÇİÖREN</span>
         <span class="brand-s">SÜRÜŞ</span>
       </div>
-      <p class="tagline">Estergon'dan Etlik'e, serbest sürüş · 3D Keçiören haritası</p>
+      <p class="tagline">Keçiören'den Çankaya'ya, Sincan'dan Esenboğa'ya · 3D Ankara haritası</p>
     </div>
 
     <div class="garage">
@@ -71,14 +71,14 @@
   <!-- ============ OYUN ARAYÜZÜ ============ -->
   <div id="hud" class="hidden">
     <div class="hud-top">
-      <div class="pill" id="district">Keçiören</div>
+      <div class="pill" id="district">Ankara</div>
       <div class="pill" id="clock">08:30</div>
       <div class="pill ghost" id="perf">60 fps</div>
     </div>
 
     <div class="hud-left">
       <canvas id="minimap" width="230" height="230"></canvas>
-      <div class="map-label" id="map-label">Keçiören · <span id="coord">0, 0</span></div>
+      <div class="map-label" id="map-label">Ankara · <span id="coord">0, 0</span></div>
     </div>
 
     <div class="hud-right">
@@ -130,7 +130,7 @@
   <!-- ============ HARİTA ============ -->
   <div id="mapview" class="hidden">
     <div class="map-head">
-      <h2>Keçiören Haritası</h2>
+      <h2>Ankara Haritası</h2>
       <div class="map-actions">
         <button id="map-centre" class="ghost-btn small">ARACIMA GİT</button>
         <button id="map-clear" class="ghost-btn small">HEDEFİ SİL</button>

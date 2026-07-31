@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Keçiören'de geçen 3D serbest sürüş oyunu",
+  "description": "Ankara'da geçen 3D serbest sürüş oyunu",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build-single.mjs",

@@ -361,12 +361,22 @@ export function buildProps(network, ground, colliders) {
   }
 
   // ------------------------------------------------------- scattered trees
+  // Scattered near the streets rather than over the whole map: Ankara covers
+  // 90 km² here, and trees sprinkled uniformly over that would be invisible.
   const treeTarget = QUALITY.trees;
+  const edges = network.edges;
   let tries = 0;
-  while (trunks.length < treeTarget && tries < treeTarget * 6) {
+  while (trunks.length < treeTarget && tries < treeTarget * 8) {
     tries++;
-    const x = randRange(rng, -MAP.half, MAP.half);
-    const z = randRange(rng, -MAP.half, MAP.half);
+    const edge = edges[Math.floor(rng() * edges.length)];
+    if (!edge || edge.path.length < 2) continue;
+    const p = edge.path[Math.floor(rng() * edge.path.length)];
+    const spread = randRange(rng, 14, 120);
+    const ang = rng() * Math.PI * 2;
+    const x = p.x + Math.cos(ang) * spread;
+    const z = p.z + Math.sin(ang) * spread;
+    if (Math.abs(x) > MAP.half || Math.abs(z) > MAP.half) continue;
+
     const near = network.nearestRoad(x, z);
     if (near && near.dist < near.halfWidth + 6) continue;
     if (colliders.overlaps(x, z, 1.4, 1.4, 0, 0.5)) continue;
@@ -539,6 +549,8 @@ export function buildProps(network, ground, colliders) {
 }
 
 /** Walkers that shuffle along the pavements; purely cosmetic. */
+const PED_RANGE = 260;      // how far from the car pedestrians are kept
+
 function createPedestrians(network, rng) {
   const COUNT = QUALITY.pedestrians;
   const edges = network.edges.filter((e) => e.type !== 'highway' && e.length > 40);
@@ -568,7 +580,8 @@ function createPedestrians(network, rng) {
       dir: rng() > 0.5 ? 1 : -1,
       side: rng() > 0.5 ? 1 : -1,
       speed: randRange(rng, 0.9, 1.6),
-      phase: rng() * Math.PI * 2
+      phase: rng() * Math.PI * 2,
+      check: rng() * 2
     });
     colour.setHex(palette[Math.floor(rng() * palette.length)]);
     mesh.setColorAt(i, colour);
@@ -578,9 +591,37 @@ function createPedestrians(network, rng) {
   const dummy = new THREE.Object3D();
   const probe = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
 
-  function update(dt, time) {
+  /**
+   * Moves someone to a street near the car. Ankara covers ninety square
+   * kilometres, so a fixed sprinkling of pedestrians would leave every
+   * pavement in sight empty; instead the same handful follow the player.
+   */
+  const rehome = (p, at) => {
+    for (let tries = 0; tries < 24; tries++) {
+      const e = edges[Math.floor(rng() * edges.length)];
+      if (!e) return;
+      const mid = e.path[Math.floor(e.path.length / 2)];
+      const d = Math.hypot(mid.x - at.x, mid.z - at.z);
+      if (d > PED_RANGE) continue;
+      p.edge = e;
+      p.s = rng() * e.length;
+      p.dir = rng() > 0.5 ? 1 : -1;
+      p.side = rng() > 0.5 ? 1 : -1;
+      return;
+    }
+  };
+
+  function update(dt, time, at) {
     for (let i = 0; i < people.length; i++) {
       const p = people[i];
+      if (at) {
+        p.check -= dt;
+        if (p.check <= 0) {
+          p.check = 1.5 + rng();
+          const mid = p.edge ? p.edge.path[Math.floor(p.edge.path.length / 2)] : null;
+          if (!mid || Math.hypot(mid.x - at.x, mid.z - at.z) > PED_RANGE * 1.35) rehome(p, at);
+        }
+      }
       if (!p.edge) continue;
       p.s += p.speed * p.dir * dt;
       if (p.s > p.edge.length) {

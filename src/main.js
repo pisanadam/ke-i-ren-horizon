@@ -3,10 +3,12 @@ import './styles.css';
 
 import { RoadNetwork } from './world/network.js';
 import { Ground } from './world/ground.js';
+import { TerrainChunks } from './world/terrainChunks.js';
 import { buildRoads } from './world/roads.js';
 import { buildBuildings } from './world/buildings.js';
 import { buildProps } from './world/props.js';
 import { buildLandmarks, buildTeleferik } from './world/landmarks.js';
+import { Metro } from './world/metro.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS } from './world/mapData.js';
@@ -86,14 +88,14 @@ class Game {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     };
 
-    await step(6, 'Keçiören yol ağı çiziliyor…');
+    await step(6, 'Ankara yol ağı çiziliyor…');
     this.network = new RoadNetwork().build();
 
-    await step(20, 'Vadi ve tepeler şekilleniyor…');
+    await step(20, 'Ankara ovası ve tepeleri şekilleniyor…');
     this.ground = new Ground(this.network);
     this.colliders = new ColliderGrid();
-    const terrain = this.ground.build();
-    this.scene.add(terrain);
+    this.scene.add(this.ground.buildBackdrop());
+    this.terrain = new TerrainChunks(this.ground, this.scene);
 
     await step(34, 'Asfalt döşeniyor…');
     this.scene.add(buildRoads(this.network));
@@ -109,9 +111,13 @@ class Game {
     this.scene.add(landmarks.group);
     this.landmarks = landmarks;
 
-    await step(56, 'Teleferik hattı geriliyor…');
+    await step(52, 'Teleferik hattı geriliyor…');
     this.teleferik = buildTeleferik(this.ground);
     this.scene.add(this.teleferik.group);
+
+    await step(60, 'Metro hatları döşeniyor…');
+    this.metro = new Metro(this.ground, this.colliders, this.network);
+    this.scene.add(this.metro.group);
 
     await step(68, 'Apartmanlar dikiliyor…');
     const buildings = buildBuildings(this.network, this.ground, this.colliders);
@@ -275,7 +281,7 @@ class Game {
     this._placeOnRoad(SHOWCASE.x, SHOWCASE.z, SHOWCASE.yaw);
     this.rig.setMode('chase');
     this.rig.snapTo(this.vehicle);
-    this.hud.showToast(`${this.vehicle.spec.name} · Keçiören'e hoş geldin`, 3.2);
+    this.hud.showToast(`${this.vehicle.spec.name} · Ankara'ya hoş geldin`, 3.2);
   }
 
   pause() {
@@ -319,6 +325,8 @@ class Game {
     const rz = dx;
     const lane = Math.min(edge.width * 0.25, edge.width * 0.5 - 1.6);
     this.vehicle.reset(probe.x + rx * lane, probe.z + rz * lane, Math.atan2(dx, dz));
+    // dropping in somewhere new must not land the car on unbuilt terrain
+    this.terrain?.preload(this.vehicle.position.x, this.vehicle.position.z);
   }
 
   _districtName() {
@@ -433,6 +441,7 @@ class Game {
         this.rig.addShake(this.vehicle.impact * 0.9);
       }
       this.clockTime += dt;
+      this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, 6);
     } else if (!paused) {
       // slowly rotate the showcase car in the garage
       this._showcaseAngle += dt * 0.22;
@@ -453,7 +462,8 @@ class Game {
       this.network.updateLights(this.clockTime);
       this.traffic.update(dt, this.vehicle);
       this.teleferik.update(dt);
-      this.props.pedestrians.update(dt, this.clockTime);
+      this.metro.update(dt, this.vehicle.position);
+      this.props.pedestrians.update(dt, this.clockTime, this.vehicle.position);
       this.effects.update(dt);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt, this.vehicle.position);
