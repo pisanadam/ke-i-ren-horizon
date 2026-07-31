@@ -8,10 +8,11 @@ const ACTION_KEYS = {
   KeyM: 'map',
   KeyG: 'garage',
   KeyV: 'lights',
+  KeyF: 'fullscreen',
+  KeyE: 'interact',
   KeyO: 'settings',
   KeyP: 'pause',
   Escape: 'pause',
-  KeyF: 'fullscreen',
   KeyX: 'mute'
 };
 
@@ -28,7 +29,10 @@ export class Input {
   constructor() {
     this.keys = new Set();
     this.touch = { gas: false, brake: false, handbrake: false, steer: 0, active: false };
-    this.state = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };
+    this.state = {
+      throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false,
+      walkForward: 0, walkStrafe: 0, run: false, cameraYaw: 0
+    };
     this._rawSteer = 0;
     this._hornUntil = 0;
     this.actions = new Set();
@@ -194,6 +198,21 @@ export class Input {
       this._rawSteer = damp(this._rawSteer, clamp(steerTarget, -1, 1), rate, dt);
     }
     if (Math.abs(this._rawSteer) < 0.002) this._rawSteer = 0;
+
+    // on foot the same keys become movement axes
+    let wf = 0;
+    let ws = 0;
+    if (k.has('KeyW') || k.has('ArrowUp')) wf += 1;
+    if (k.has('KeyS') || k.has('ArrowDown')) wf -= 1;
+    if (k.has('KeyA') || k.has('ArrowLeft')) ws -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) ws += 1;
+    if (this.touch.gas) wf += 1;
+    if (this.touch.brake) wf -= 1;
+    if (this.touch.active || this.touch.steer !== 0) ws += clamp(this.touch.steer, -1, 1);
+    const wlen = Math.hypot(wf, ws) || 1;
+    this.state.walkForward = wf / Math.max(1, wlen);
+    this.state.walkStrafe = ws / Math.max(1, wlen);
+    this.state.run = k.has('ShiftLeft') || k.has('ShiftRight') || this.touch.handbrake;
 
     this.state.throttle = throttle;
     this.state.brake = brake;

@@ -17,6 +17,7 @@ import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.
 import { createPlayerCar } from './vehicles/carModel.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { Traffic } from './vehicles/traffic.js';
+import { OnFoot } from './vehicles/onFoot.js';
 import { CARS } from './vehicles/catalog.js';
 
 import { Effects } from './effects.js';
@@ -153,6 +154,13 @@ class Game {
     this.minimap = new MiniMap(this.plan);
     this.mapView = new MapView(this.plan, this);
 
+    // the player character: Ankara's own, and the one you step out as
+    this.onFoot = new OnFoot(this.world, {
+      skin: 0x6b4227, hair: 0x140f0c, shirt: 0x2b3f5c,
+      trousers: 0x24262b, shoes: 0x131417, build: 1.22
+    });
+    this.scene.add(this.onFoot.group);
+
     this._setupPlayer(CARS[0], CARS[0].colours[0]);
     this._setupHeadlights();
 
@@ -278,6 +286,86 @@ class Game {
     this._ambientEnv = { builtUp: built, green, night: 1 - (this.skyEnv?.lightsOn ?? 0 ? 0 : 1) };
     this._ambientEnv.night = clamp(this.skyEnv?.lightsOn ?? 0, 0, 1);
     this.audio.updateAmbient(dt, this._ambientEnv);
+  }
+
+  // ------------------------------------------------------------- on foot
+  /**
+   * The E key. What it does depends on where you are standing: get out of
+   * the car, get back in, board a waiting train, or step off one.
+   */
+  _interact() {
+    if (this.state === 'driving') {
+      if (Math.abs(this.vehicle.speedKmh) > 6) {
+        this.hud.showToast('Önce dur', 1.2);
+        return;
+      }
+      this._exitCar();
+      return;
+    }
+    if (this.state !== 'foot') return;
+
+    if (this.onFoot.riding) {
+      this.onFoot.alight(this.metro);
+      this.hud.showToast('Metrodan indin', 1.8);
+      this.rig.snapToActor(this.onFoot);
+      return;
+    }
+    const platform = this.onFoot.nearestPlatform(this.metro);
+    const train = this.onFoot.trainAt(this.metro, platform);
+    if (train) {
+      this.onFoot.board(train);
+      this.hud.showToast(`${train.line.id} hattına bindin`, 2.4);
+      this.audio.blip(720, 0.12, 0.06);
+      return;
+    }
+    if (this.onFoot.nearestCar(this.vehicle)) {
+      this._enterCar();
+      return;
+    }
+    if (platform) this.hud.showToast('Tren bekleniyor…', 1.6);
+  }
+
+  _exitCar() {
+    this.state = 'foot';
+    this.input.releaseAll();
+    this.onFoot.exit(this.vehicle);
+    this.rig.snapToActor(this.onFoot);
+    this.audio.horn(false);
+    this._hornWas = false;
+    this.hud.showToast('Araçtan indin · E ile bin', 2.6);
+  }
+
+  _enterCar() {
+    this.state = 'driving';
+    this.onFoot.active = false;
+    this.onFoot.riding = null;
+    this.onFoot.group.visible = false;
+    this.input.releaseAll();
+    this.rig.snapTo(this.vehicle);
+    this.hud.showToast('Araca bindin', 1.6);
+  }
+
+  /** The little "press E to…" line under the HUD. */
+  _updatePrompt() {
+    const el = document.getElementById('prompt');
+    if (!el) return;
+    let text = '';
+    if (this.state === 'driving' && Math.abs(this.vehicle.speedKmh) < 6) {
+      text = 'E — araçtan in';
+    } else if (this.state === 'foot') {
+      if (this.onFoot.riding) text = 'E — metrodan in';
+      else if (this.onFoot.nearestCar(this.vehicle)) text = 'E — araca bin';
+      else {
+        const platform = this.onFoot.nearestPlatform(this.metro);
+        if (platform) {
+          text = this.onFoot.trainAt(this.metro, platform)
+            ? 'E — metroya bin'
+            : `${platform.stop.name} · tren bekleniyor`;
+        }
+      }
+    }
+    el.textContent = text;
+    el.classList.toggle('hidden', !text);
   }
 
   toggleFullscreen() {
@@ -451,6 +539,15 @@ class Game {
     if (input.consume('settings')) {
       this.settings.isOpen ? this.settings.close() : this.openSettings();
     }
+    if (input.consume('interact')) this._interact();
+
+    if (this.state === 'foot') {
+      if (input.consume('respawn')) {
+        this._placeOnRoad(this.vehicle.position.x, this.vehicle.position.z, this.vehicle.yaw);
+        this._enterCar();
+      }
+      return;
+    }
     if (this.state !== 'driving') return;
 
     if (input.consume('respawn')) {
@@ -497,6 +594,7 @@ class Game {
     this._handleActions();
 
     const driving = this.state === 'driving';
+    const onFoot = this.state === 'foot';
     const paused = this.state === 'paused' || this.state === 'map';
 
     // ---- vehicle -------------------------------------------------------
@@ -509,6 +607,17 @@ class Game {
       }
       this.clockTime += dt;
       this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, 6);
+    } else if (onFoot) {
+      input.cameraYaw = this.rig.orbitYaw ?? this.rig.yaw;
+      this.onFoot.update(dt, input);
+      this.clockTime += dt;
+      this.terrain.update(this.onFoot.position.x, this.onFoot.position.z, 6);
+      // the parked car settles on its springs while you are away from it
+      this.vehicle.velocity.multiplyScalar(Math.exp(-6 * dt));
+      this.vehicle.position.y = damp(
+        this.vehicle.position.y,
+        this.ground.heightAt(this.vehicle.position.x, this.vehicle.position.z), 8, dt
+      );
     } else if (!paused) {
       // slowly rotate the showcase car in the garage
       this._showcaseAngle += dt * 0.22;
@@ -523,17 +632,19 @@ class Game {
       this.clockTime += dt;
     }
     this.vehicle.applyTo(this.playerCar);
+    if (onFoot || this.onFoot?.riding) this.onFoot.applyToModel();
 
     // ---- world ---------------------------------------------------------
     if (!paused) {
       this.network.updateLights(this.clockTime);
       this.traffic.update(dt, this.vehicle);
       this.teleferik.update(dt);
-      this.metro.update(dt, this.vehicle.position);
-      this.props.pedestrians.update(dt, this.clockTime, this.vehicle.position);
+      const focus = onFoot ? this.onFoot.position : this.vehicle.position;
+      this.metro.update(dt, focus);
+      this.props.pedestrians.update(dt, this.clockTime, focus);
       this.effects.update(dt);
       this._emitTyreEffects(dt);
-      this.skyEnv.update(dt * this.clockScale, this.vehicle.position);
+      this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
       this._updateNight(dt);
       this._updateSignalLenses(dt);
       this._updateFlags();
@@ -558,12 +669,20 @@ class Game {
       );
       this.camera.fov = 40;
       this.camera.updateProjectionMatrix();
+    } else if (onFoot) {
+      // the camera trails behind whichever way the character is facing
+      this.rig.orbitYaw = this.onFoot.yaw;
+      this.rig.follow(dt, this.onFoot, this.ground);
     } else if (!paused) {
       this.rig.update(dt, this.vehicle, this.ground);
     }
 
     // ---- audio ---------------------------------------------------------
-    if (driving) {
+    if (onFoot) {
+      // the engine is off; only the world is audible
+      this.audio.update(this.vehicle, { throttle: 0, brake: 0, handbrake: false }, dt);
+      this._updateAmbient(dt);
+    } else if (driving) {
       this.audio.update(this.vehicle, input, dt);
       this._updateAmbient(dt);
       if (input.horn !== this._hornWas) {
@@ -575,8 +694,10 @@ class Game {
       this._hornWas = false;
     }
 
+    this._updatePrompt();
+
     // ---- ui ------------------------------------------------------------
-    if (driving || paused) {
+    if (driving || onFoot || paused) {
       const district = this._districtName();
       this.hud.setDistrict(district);
       this.hud.update(dt, this.vehicle, { clock: this.skyEnv.clockText, fps: this.fps });

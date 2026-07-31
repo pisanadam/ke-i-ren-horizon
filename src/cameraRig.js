@@ -76,6 +76,40 @@ export class CameraRig {
     this.shake = Math.min(1, this.shake + amount);
   }
 
+  /**
+   * Third-person chase for a walking character. Much closer in than the car
+   * camera, and it orbits with the mouse rather than snapping behind.
+   */
+  follow(dt, actor, ground) {
+    const p = actor.position;
+    this.yaw = dampAngle(this.yaw, this.orbitYaw ?? this.yaw, 9, dt);
+    const dist = 4.2;
+    const height = 1.7;
+    const dx = p.x - Math.sin(this.yaw) * dist;
+    const dz = p.z - Math.cos(this.yaw) * dist;
+    const groundY = ground.heightAt(dx, dz);
+    const desiredY = Math.max(p.y, groundY) + height;
+
+    this.pos.x = damp(this.pos.x, dx, 9, dt);
+    this.pos.y = damp(this.pos.y, desiredY, 8, dt);
+    this.pos.z = damp(this.pos.z, dz, 9, dt);
+    const camGround = ground.heightAt(this.pos.x, this.pos.z) + 0.8;
+    if (this.pos.y < camGround) this.pos.y = camGround;
+
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(p.x, p.y + 1.35, p.z);
+  }
+
+  snapToActor(actor) {
+    this.orbitYaw = actor.yaw;
+    this.yaw = actor.yaw;
+    this.pos.set(
+      actor.position.x - Math.sin(this.yaw) * 4.2,
+      actor.position.y + 1.7,
+      actor.position.z - Math.cos(this.yaw) * 4.2
+    );
+  }
+
   update(dt, vehicle, ground) {
     const spec = vehicle.spec;
     const p = vehicle.position;

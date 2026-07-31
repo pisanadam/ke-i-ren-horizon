@@ -735,3 +735,21 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   .settings-grid { grid-template-columns: 1fr; }
   .settings-box { padding: 16px 16px 14px; }
 }
+
+/* "E — araçtan in" satırı */
+#prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 16%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 99px;
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(8px);
+  font: 600 12.5px/1 var(--font);
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
