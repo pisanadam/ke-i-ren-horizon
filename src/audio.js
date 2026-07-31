@@ -115,35 +115,49 @@ export class AudioEngine {
   /**
    * @param {object} v vehicle state
    * @param {object} input current controls
+   * @param {number} dt seconds since the last frame
    */
-  update(v, input) {
+  update(v, input, dt = 1 / 60) {
     if (!this.started || !this.ctx) return;
     const now = this.ctx.currentTime;
     const spec = v.spec;
     const load = clamp(input.throttle, 0, 1);
     const speed = v.speed;
 
+    // Off the throttle the engine has to fall back to idle. Following v.rpm
+    // straight through meant a car rolling down a hill revved up on its own
+    // and sounded exactly like the gas was pinned.
+    const idleRpm = 900;
+    const target = load > 0 ? v.rpm : idleRpm + (v.rpm - idleRpm) * 0.08;
+    // revs snap up on the throttle and fall away gently on the overrun
+    const a = 1 - Math.exp(-(load > 0 ? 9 : 3) * clamp(dt, 0, 0.25));
+    this._audioRpm = this._audioRpm === undefined
+      ? target
+      : this._audioRpm + (target - this._audioRpm) * a;
+    const rpm = this._audioRpm;
+
     if (spec.electric) {
       this.engineGain.gain.setTargetAtTime(0.02, now, 0.1);
-      const f = 180 + speed * 26;
+      const f = 180 + speed * 26 * (0.25 + load * 0.75);
       this.whine.frequency.setTargetAtTime(f, now, 0.05);
-      this.whineGain.gain.setTargetAtTime(0.035 + load * 0.05, now, 0.08);
+      this.whineGain.gain.setTargetAtTime(0.008 + load * 0.072, now, 0.08);
       this.engineFilter.frequency.setTargetAtTime(900, now, 0.1);
     } else {
       this.whineGain.gain.setTargetAtTime(0, now, 0.1);
-      const base = (v.rpm / 60) * 2;
+      const base = (rpm / 60) * 2;
       for (const o of this.osc) {
         o.o.frequency.setTargetAtTime(clamp(base * o.ratio, 20, 900), now, 0.035);
       }
       const heaviness = spec.mass > 4000 ? 0.6 : 1;
+      // a quiet idle underneath, and the note only opens up under throttle
       this.engineGain.gain.setTargetAtTime(
-        (0.055 + load * 0.09) * heaviness, now, 0.08
+        (0.014 + load * 0.13) * heaviness, now, load > 0 ? 0.05 : 0.16
       );
       this.engineFilter.frequency.setTargetAtTime(
-        lerp(420, 2600, clamp(v.rpm / 7000, 0, 1) * (0.45 + load * 0.55)), now, 0.06
+        lerp(420, 2600, clamp(rpm / 7000, 0, 1) * (0.3 + load * 0.7)), now, 0.06
       );
-      this.exhaust.gain.gain.setTargetAtTime(0.012 + load * 0.05, now, 0.08);
-      this.exhaust.filter.frequency.setTargetAtTime(180 + v.rpm * 0.06, now, 0.08);
+      this.exhaust.gain.gain.setTargetAtTime(0.004 + load * 0.058, now, load > 0 ? 0.06 : 0.18);
+      this.exhaust.filter.frequency.setTargetAtTime(180 + rpm * 0.06, now, 0.08);
     }
 
     // wind and road noise

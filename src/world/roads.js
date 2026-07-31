@@ -121,15 +121,19 @@ function junctionPlate(node, radius, y) {
  * Embankment hanging off the outer edge of a road, down to the hillside.
  * Where a carriageway is built up over falling ground this is what stops you
  * seeing daylight underneath it.
+ *
+ * Only the stretches that actually need one are emitted. A skirt run along
+ * the whole edge used to march straight through junctions and lay a khaki
+ * wedge across the crossing street — so a point is skipped whenever it would
+ * land on another carriageway, and each run tapers to nothing at its ends.
+ *
+ * @returns {THREE.BufferGeometry[]} one strip per stretch that needs one
  */
-function embankment(path, offset, side, rise) {
-  if (path.length < 2) return null;
+function embankment(path, offset, side, rise, blocked) {
+  if (path.length < 2) return [];
   const fr = frames(path);
-  const verts = [];
-  const uvs = [];
-  const idx = [];
+  const pts = [];
   let dist = 0;
-  let anyDrop = false;
 
   for (let i = 0; i < path.length; i++) {
     if (i > 0) dist += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
@@ -141,27 +145,53 @@ function embankment(path, offset, side, rise) {
     const outX = ox + f.rx * side * 2.2;
     const outZ = oz + f.rz * side * 2.2;
     const ground = Math.min(baseHeight(outX, outZ), baseHeight(ox, oz)) - 0.5;
-    const bottom = Math.min(top - 0.05, ground);
-    if (top - bottom > 0.35) anyDrop = true;
-
-    verts.push(ox, top, oz);
-    verts.push(outX, bottom, outZ);
-    uvs.push(0, dist / 4, 1, dist / 4);
-  }
-  if (!anyDrop) return null;
-
-  for (let i = 0; i < path.length - 1; i++) {
-    const a = i * 2;
-    if (side > 0) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    const drop = top - ground;
+    const clear = !blocked(ox, oz) && !blocked(outX, outZ);
+    pts.push({ ox, oz, outX, outZ, top, ground, dist, need: drop > 0.35 && clear, clear });
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  // group the points that need a skirt into contiguous runs
+  const geos = [];
+  let i = 0;
+  while (i < pts.length) {
+    if (!pts[i].need) { i++; continue; }
+    let j = i;
+    while (j + 1 < pts.length && pts[j + 1].need) j++;
+
+    // one clear point of run-out at each end so the strip fades into the
+    // hillside rather than ending on a vertical face
+    let lo = i > 0 && pts[i - 1].clear ? i - 1 : i;
+    let hi = j + 1 < pts.length && pts[j + 1].clear ? j + 1 : j;
+    i = j + 1;
+    if (hi - lo < 1) continue;
+
+    const verts = [];
+    const uvs = [];
+    const idx = [];
+    for (let k = lo; k <= hi; k++) {
+      const p = pts[k];
+      // the run-out points sit flush with the kerb, so the strip closes up
+      const bottom = k === lo || k === hi
+        ? p.top - 0.05
+        : Math.min(p.top - 0.05, p.ground);
+      verts.push(p.ox, p.top, p.oz);
+      verts.push(p.outX, bottom, p.outZ);
+      uvs.push(0, p.dist / 4, 1, p.dist / 4);
+    }
+    for (let k = 0; k < hi - lo; k++) {
+      const a = k * 2;
+      if (side > 0) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    geos.push(geo);
+  }
+  return geos;
 }
 
 export function buildRoads(network) {
@@ -173,6 +203,13 @@ export function buildRoads(network) {
   const kerbs = [];
   const marks = [];
   const banks = [];
+
+  // A skirt point that lands on somebody else's tarmac or pavement is one of
+  // those wedges cutting across the road, so it never gets built.
+  const onOtherRoad = (x, z) => {
+    const near = network.nearestRoad(x, z);
+    return !!near && near.dist < near.walkOuter - 0.25;
+  };
 
   // junction radius per node, so edges can be trimmed back to meet it
   const nodeRadius = new Map();
@@ -221,12 +258,13 @@ export function buildRoads(network) {
       if (wr) walks.push(wr);
 
       const outer = hw + 0.4 + walkW;
-      banks.push(embankment(edge.path, outer, 1, y + 0.16));
-      banks.push(embankment(edge.path, outer, -1, y + 0.16));
+      banks.push(...embankment(trimmed, outer, 1, y + 0.16, onOtherRoad));
+      banks.push(...embankment(trimmed, outer, -1, y + 0.16, onOtherRoad));
     }
     if (edge.type === 'highway') {
-      banks.push(embankment(edge.path, hw + 0.6, 1, y));
-      banks.push(embankment(edge.path, hw + 0.6, -1, y));
+      const hpath = trimmed || edge.path;
+      banks.push(...embankment(hpath, hw + 0.6, 1, y, onOtherRoad));
+      banks.push(...embankment(hpath, hw + 0.6, -1, y, onOtherRoad));
     }
 
     // lane markings

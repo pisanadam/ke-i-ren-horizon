@@ -73,6 +73,7 @@ export class Vehicle {
   update(dt, input) {
     const spec = this.spec;
     const { ground, network, colliders } = this.world;
+    this._lastDt = dt;
 
     const sinY = Math.sin(this.yaw);
     const cosY = Math.cos(this.yaw);
@@ -238,15 +239,20 @@ export class Vehicle {
     }
 
     // ---------------------------------------------------------- body attitude
+    // Sampled at the axles and at the track, not at some fixed distance: the
+    // body plane then passes through the wheel contact points, which is what
+    // keeps all four tyres on the ground instead of two floating and two sunk.
+    const halfWB2 = spec.wheelBase * 0.5;
+    const halfTrack = spec.width * 0.42;
     const fwdSlope = Math.atan2(
-      ground.heightAt(this.position.x + this._fwd.x * 1.4, this.position.z + this._fwd.z * 1.4) -
-        ground.heightAt(this.position.x - this._fwd.x * 1.4, this.position.z - this._fwd.z * 1.4),
-      2.8
+      ground.heightAt(this.position.x + this._fwd.x * halfWB2, this.position.z + this._fwd.z * halfWB2) -
+        ground.heightAt(this.position.x - this._fwd.x * halfWB2, this.position.z - this._fwd.z * halfWB2),
+      halfWB2 * 2
     );
     const sideSlope = Math.atan2(
-      ground.heightAt(this.position.x + this._right.x * 1.0, this.position.z + this._right.z * 1.0) -
-        ground.heightAt(this.position.x - this._right.x * 1.0, this.position.z - this._right.z * 1.0),
-      2.0
+      ground.heightAt(this.position.x + this._right.x * halfTrack, this.position.z + this._right.z * halfTrack) -
+        ground.heightAt(this.position.x - this._right.x * halfTrack, this.position.z - this._right.z * halfTrack),
+      halfTrack * 2
     );
     this.pitch = damp(this.pitch, -fwdSlope, 9, dt);
     this.roll = damp(this.roll, -sideSlope, 9, dt);
@@ -277,15 +283,48 @@ export class Vehicle {
     if (this.gear === -1) this.rpm = clamp(900 + Math.abs(vLong) * 300, 800, 4200);
   }
 
-  /** Applies the physics state to the visual car group. */
+  /**
+   * Applies the physics state to the visual car group.
+   *
+   * The slope of the ground tilts the *whole* vehicle, wheels included — it
+   * used to tilt only the shell, which left the wheels standing bolt upright
+   * on a hill, one buried in the tarmac and the others hanging in the air.
+   * Only the weight-transfer lean stays on the body, because that is the
+   * shell moving on its springs while the wheels stay put.
+   */
   applyTo(car) {
+    const spec = this.spec;
     car.group.position.copy(this.position);
-    car.group.rotation.set(0, this.yaw, 0);
-    car.bodyRoot.rotation.set(this.pitch + this.bodyPitch, 0, this.roll + this.bodyRoll);
+    car.group.rotation.set(this.pitch, this.yaw, this.roll);   // YXZ
+    car.bodyRoot.rotation.set(this.bodyPitch, 0, this.bodyRoll);
+
+    // The tilt comes from one slope reading under the car, so on uneven
+    // ground each wheel still needs a little travel of its own.
+    const ground = this.world.ground;
+    const sinP = Math.sin(this.pitch);
+    const cosP = Math.cos(this.pitch);
+    const sinR = Math.sin(this.roll);
+    const cosR = Math.cos(this.roll);
+    const dt = this._lastDt || 1 / 60;
 
     for (const holder of car.wheelMeshes) {
-      if (holder.userData.front) holder.rotation.y = -this.steer;
-      holder.userData.spin.rotation.x = this.wheelSpin;
+      const d = holder.userData;
+      if (d.front) holder.rotation.y = -this.steer;
+      d.spin.rotation.x = this.wheelSpin;
+      if (d.baseX === undefined) continue;
+
+      // hub offset through roll, then pitch, then yaw — the same order the
+      // group's YXZ euler uses, so this lands exactly where the mesh will
+      const x1 = d.baseX * cosR - d.baseY * sinR;
+      const y1 = d.baseX * sinR + d.baseY * cosR;
+      const y2 = y1 * cosP - d.baseZ * sinP;
+      const z2 = y1 * sinP + d.baseZ * cosP;
+      const wx = this.position.x + this._fwd.x * z2 - this._right.x * x1;
+      const wz = this.position.z + this._fwd.z * z2 - this._right.z * x1;
+
+      const want = ground.heightAt(wx, wz) + spec.wheelRadius;
+      const travel = clamp(want - (this.position.y + y2), -0.22, 0.22);
+      holder.position.y = damp(holder.position.y, d.baseY + travel, 14, dt);
     }
   }
 }

@@ -487,7 +487,7 @@ class Game {
 
     // ---- audio ---------------------------------------------------------
     if (driving) {
-      this.audio.update(this.vehicle, input);
+      this.audio.update(this.vehicle, input, dt);
       if (input.horn !== this._hornWas) {
         this.audio.horn(input.horn);
         this._hornWas = input.horn;

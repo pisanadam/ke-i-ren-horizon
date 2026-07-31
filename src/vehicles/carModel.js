@@ -612,6 +612,8 @@ export function createPlayerCar(spec, colourHex) {
   const parts = buildCarParts(spec, 'high');
   const group = new THREE.Group();
   group.name = `car-${spec.id}`;
+  // yaw about the world axis first, then lean with the ground underneath
+  group.rotation.order = 'YXZ';
 
   const paintMat = MATS.paint();
   paintMat.color.setHex(colourHex);
@@ -649,6 +651,10 @@ export function createPlayerCar(spec, colourHex) {
     holder.add(mesh);
     holder.userData.front = w.front;
     holder.userData.spin = mesh;
+    // rest position, so the suspension has something to travel around
+    holder.userData.baseX = w.x;
+    holder.userData.baseY = w.y;
+    holder.userData.baseZ = w.z;
     group.add(holder);
     return holder;
   });
