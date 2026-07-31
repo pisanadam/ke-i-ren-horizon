@@ -11,6 +11,18 @@ export class AudioEngine {
     this.enabled = true;
     this.started = false;
     this.muted = false;
+    this.levels = { master: 0.7, engine: 1, ambient: 1, tyres: 1 };
+
+    // Coming back to the tab leaves the context suspended on every browser,
+    // and Chrome suspends it outright while the page is hidden. Nothing else
+    // resumes it, so the game came back silent.
+    const wake = () => this.resume();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+    window.addEventListener('focus', wake);
+    window.addEventListener('pageshow', wake);
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+      window.addEventListener(ev, wake, { passive: true });
+    }
   }
 
   /** Must be called from a user gesture. */
@@ -23,7 +35,7 @@ export class AudioEngine {
 
     const ctx = this.ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.7;
+    this.master.gain.value = this.levels.master;
     this.master.connect(ctx.destination);
 
     // ---------------------------------------------------------- engine
@@ -91,6 +103,136 @@ export class AudioEngine {
     this.squeal.start();
 
     this._brakeWobble = 0;
+    this._ambient();
+  }
+
+  /**
+   * The world outside the car: a low traffic rumble that follows how built-up
+   * the surroundings are, wind over open ground, and birdsong near parks. All
+   * synthesised, like everything else here.
+   */
+  _ambient() {
+    const ctx = this.ctx;
+    this.ambientGain = ctx.createGain();
+    this.ambientGain.gain.value = this.levels.ambient * 0.9;
+    this.ambientGain.connect(this.master);
+
+    const bed = (type, freq, q, vol) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.loop = true;
+      src.playbackRate.value = 0.6 + Math.random() * 0.5;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      src.connect(f); f.connect(g); g.connect(this.ambientGain);
+      src.start();
+      return { src, filter: f, gain: g };
+    };
+
+    // distant traffic: a broad low roar
+    this.cityBed = bed('lowpass', 320, 0.7, 0);
+    // open country: wind in the grass, higher and thinner
+    this.windBed = bed('bandpass', 900, 0.6, 0);
+
+    // birds — a chirp every so often near parkland
+    this.birdGain = ctx.createGain();
+    this.birdGain.gain.value = 0;
+    this.birdGain.connect(this.ambientGain);
+    this._birdTimer = 2 + Math.random() * 4;
+    this._birdChance = 0;
+
+    // the odd horn from somewhere in the traffic
+    this._hornTimer = 8 + Math.random() * 14;
+    this._hornChance = 0;
+  }
+
+  /** Chirp: two quick swept sines. */
+  _chirp() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const notes = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < notes; i++) {
+      const t = now + i * 0.13;
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      const f0 = 2400 + Math.random() * 1600;
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * (1.3 + Math.random() * 0.5), t + 0.05);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t + 0.1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+      o.connect(g);
+      g.connect(this.birdGain);
+      o.start(t);
+      o.stop(t + 0.14);
+    }
+  }
+
+  /** A horn somewhere off in the traffic, softened by distance. */
+  _distantHorn() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const len = 0.25 + Math.random() * 0.4;
+    const base = 330 + Math.random() * 190;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.02 + Math.random() * 0.02, now + 0.03);
+    g.gain.setValueAtTime(g.gain.value, now + len);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + len + 0.12);
+    const soft = ctx.createBiquadFilter();
+    soft.type = 'lowpass';
+    soft.frequency.value = 900;
+    soft.connect(g);
+    g.connect(this.ambientGain);
+    for (const mul of [1, 1.26]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = base * mul;
+      o.connect(soft);
+      o.start(now);
+      o.stop(now + len + 0.2);
+    }
+  }
+
+  /**
+   * @param {number} dt seconds
+   * @param {object} env  {builtUp 0..1, green 0..1, speed, night 0..1}
+   */
+  updateAmbient(dt, env) {
+    if (!this.started || !this.ctx || !this.cityBed) return;
+    const now = this.ctx.currentTime;
+    const built = clamp(env.builtUp, 0, 1);
+    const green = clamp(env.green, 0, 1);
+    const night = clamp(env.night ?? 0, 0, 1);
+
+    // the city quietens down overnight
+    const cityVol = built * (0.055 + 0.02 * (1 - night)) * (1 - night * 0.45);
+    this.cityBed.gain.gain.setTargetAtTime(cityVol, now, 0.8);
+    this.cityBed.filter.frequency.setTargetAtTime(240 + built * 220, now, 0.8);
+
+    const windVol = (1 - built) * 0.05;
+    this.windBed.gain.gain.setTargetAtTime(windVol, now, 0.9);
+
+    // birds want daylight and greenery
+    const birdy = green * (1 - night);
+    this.birdGain.gain.setTargetAtTime(birdy > 0.05 ? 1 : 0, now, 0.5);
+    this._birdTimer -= dt;
+    if (this._birdTimer <= 0) {
+      this._birdTimer = 1.4 + Math.random() * 5;
+      if (Math.random() < birdy) this._chirp();
+    }
+
+    this._hornTimer -= dt;
+    if (this._hornTimer <= 0) {
+      this._hornTimer = 9 + Math.random() * 20;
+      if (Math.random() < built * 0.75 * (1 - night * 0.6)) this._distantHorn();
+    }
   }
 
   _makeNoise(seconds) {
@@ -127,11 +269,30 @@ export class AudioEngine {
 
   setMuted(m) {
     this.muted = m;
-    if (this.master) this.master.gain.value = m ? 0 : 0.7;
+    this._applyMaster();
+  }
+
+  _applyMaster() {
+    if (!this.master) return;
+    this.master.gain.value = this.muted ? 0 : this.levels.master;
+  }
+
+  /** Per-channel volumes from the settings screen. */
+  setLevels(levels) {
+    Object.assign(this.levels, levels);
+    this._applyMaster();
+    if (this.ambientGain) {
+      this.ambientGain.gain.value = this.levels.ambient * 0.9;
+    }
   }
 
   resume() {
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended' || this.ctx.state === 'interrupted') {
+      // the promise rejects if there is still no user gesture; that is fine,
+      // one of the other wake events will get there
+      this.ctx.resume().catch(() => {});
+    }
   }
 
   /**

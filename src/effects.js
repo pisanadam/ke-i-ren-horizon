@@ -17,6 +17,8 @@ export class Effects {
     this._buildSkids();
     this._buildSmoke();
     this._lastSkid = new Map();
+    this.smokeScale = 1;     // 0 turns puffs off entirely
+    this.skidsOn = true;
   }
 
   // ---------------------------------------------------------------- skids
@@ -80,7 +82,15 @@ export class Effects {
    * Lays one strip of rubber between the previous and current wheel position.
    * @param {string} key stable id per wheel so strips connect up
    */
+  /** Called by the settings screen. */
+  setLevels(smokeScale, skidsOn) {
+    this.smokeScale = smokeScale;
+    this.skidsOn = !!skidsOn;
+    if (!this.skidsOn) this.clearSkids();
+  }
+
   addSkid(key, x, y, z, dirX, dirZ, width, strength) {
+    if (!this.skidsOn) return;
     const prev = this._lastSkid.get(key);
     const now = { x, y, z };
     if (!prev) {

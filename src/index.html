@@ -76,6 +76,11 @@
       <div class="pill ghost" id="perf">60 fps</div>
     </div>
 
+    <div class="hud-corner">
+      <button id="btn-settings" class="corner-btn" title="Ayarlar (O)" aria-label="Ayarlar">⚙</button>
+      <button id="btn-fullscreen" class="corner-btn" title="Tam ekran (F)" aria-label="Tam ekran">⛶</button>
+    </div>
+
     <div class="hud-left">
       <canvas id="minimap" width="230" height="230"></canvas>
       <div class="map-label" id="map-label">Ankara · <span id="coord">0, 0</span></div>
@@ -127,6 +132,24 @@
     </div>
   </div>
 
+  <!-- ============ AYARLAR ============ -->
+  <div id="settings" class="screen hidden">
+    <div class="settings-box">
+      <h2>Ayarlar</h2>
+      <div class="settings-tabs">
+        <button class="tab on" data-tab="video">Görüntü</button>
+        <button class="tab" data-tab="ses">Ses</button>
+        <button class="tab" data-tab="oyun">Oyun</button>
+      </div>
+      <div class="settings-grid" id="settings-grid"></div>
+      <p class="settings-note" id="settings-note"></p>
+      <div class="settings-actions">
+        <button id="settings-reset" class="ghost-btn small">VARSAYILANA DÖN</button>
+        <button id="settings-close" class="primary">BİTTİ</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ HARİTA ============ -->
   <div id="mapview" class="hidden">
     <div class="map-head">
@@ -147,6 +170,7 @@
       <h2>Duraklatıldı</h2>
       <div class="pause-stats" id="pause-stats"></div>
       <button id="btn-resume" class="primary">DEVAM ET</button>
+      <button id="btn-pause-settings" class="ghost-btn">AYARLAR</button>
       <button id="btn-garage" class="ghost-btn">GARAJA DÖN</button>
       <div class="keymap">
         <div><kbd>W</kbd> / <kbd>↑</kbd><span>Gaz</span></div>

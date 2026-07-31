@@ -8,6 +8,7 @@ const ACTION_KEYS = {
   KeyM: 'map',
   KeyG: 'garage',
   KeyV: 'lights',
+  KeyO: 'settings',
   KeyP: 'pause',
   Escape: 'pause',
   KeyF: 'fullscreen',

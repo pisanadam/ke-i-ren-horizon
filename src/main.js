@@ -11,7 +11,7 @@ import { buildLandmarks, buildTeleferik } from './world/landmarks.js';
 import { Metro } from './world/metro.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
-import { ZONES, SPAWN_POINTS, LANDMARKS } from './world/mapData.js';
+import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 
 import { createPlayerCar } from './vehicles/carModel.js';
 import { Vehicle } from './vehicles/vehicle.js';
@@ -27,6 +27,7 @@ import { MiniMap } from './ui/minimap.js';
 import { MapPlan } from './ui/mapPlan.js';
 import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
+import { Settings } from './ui/settings.js';
 import { clamp, damp, lerp } from './util/math.js';
 import { installTouchGuards } from './util/touchGuards.js';
 import { QUALITY, IS_TOUCH } from './quality.js';
@@ -45,6 +46,10 @@ class Game {
     this._showcaseAngle = 0;
     this._hornWas = false;
     this.waypoint = null;
+    this.clockScale = 1;
+    this.shakeScale = 1;
+    this.useMph = false;
+    this._ambientAcc = 0;
 
     installTouchGuards();
 
@@ -154,6 +159,12 @@ class Game {
       onDrive: () => this.startDriving()
     });
 
+    this.settings = new Settings(this);
+    this.settings.applyAll();
+
+    document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
+    document.getElementById('btn-settings').addEventListener('click', () => this.openSettings());
+    document.getElementById('btn-pause-settings').addEventListener('click', () => this.openSettings());
     document.getElementById('btn-resume').addEventListener('click', () => this.resume());
     document.getElementById('btn-garage').addEventListener('click', () => this.toGarage());
     // pointerup, not click: the double-tap guard can swallow the synthetic
@@ -229,6 +240,58 @@ class Game {
       this.hud.showToast('Hedef işaretlendi', 1.8);
       this.audio.blip(760, 0.1, 0.06);
     }
+  }
+
+  /**
+   * Feeds the ambient bed with what is actually around the car: how built-up
+   * the surroundings are, how much parkland, and whether it is dark.
+   */
+  _updateAmbient(dt) {
+    this._ambientAcc += dt;
+    if (this._ambientAcc < 0.35) {
+      this.audio.updateAmbient(dt, this._ambientEnv || { builtUp: 0, green: 0, night: 0 });
+      return;
+    }
+    this._ambientAcc = 0;
+
+    const p = this.vehicle.position;
+    let built = 0;
+    for (const g of DISTRICT_GRIDS) {
+      const dx = Math.abs(p.x - g.x) / (g.w * 0.5 + 500);
+      const dz = Math.abs(p.z - g.z) / (g.h * 0.5 + 500);
+      const d = Math.max(dx, dz);
+      if (d < 1) built = Math.max(built, 1 - d * d);
+    }
+    let green = 0;
+    for (const l of LANDMARKS) {
+      if (!l.green) continue;
+      const d = Math.hypot(p.x - l.x, p.z - l.z) / (l.radius * 2.2);
+      if (d < 1) green = Math.max(green, 1 - d);
+    }
+    // open countryside counts as green too
+    green = Math.max(green, (1 - built) * 0.55);
+
+    this._ambientEnv = { builtUp: built, green, night: 1 - (this.skyEnv?.lightsOn ?? 0 ? 0 : 1) };
+    this._ambientEnv.night = clamp(this.skyEnv?.lightsOn ?? 0, 0, 1);
+    this.audio.updateAmbient(dt, this._ambientEnv);
+  }
+
+  toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.();
+    }
+  }
+
+  openSettings() {
+    if (this.state === 'driving') this.pause();
+    this.input?.releaseAll();
+    this.settings.open();
+  }
+
+  settingsClosed() {
+    this.input?.clearActions();
   }
 
   openMap() {
@@ -380,9 +443,9 @@ class Game {
       this.audio.setMuted(!this.audio.muted);
       this.hud.showToast(this.audio.muted ? 'Ses kapalı' : 'Ses açık', 1.4);
     }
-    if (input.consume('fullscreen')) {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-      else document.exitFullscreen?.();
+    if (input.consume('fullscreen')) this.toggleFullscreen();
+    if (input.consume('settings')) {
+      this.settings.isOpen ? this.settings.close() : this.openSettings();
     }
     if (this.state !== 'driving') return;
 
@@ -438,7 +501,7 @@ class Game {
       this.vehicle.update(dt, input);
       if (this.vehicle.impact > prevImpact + 0.05) {
         this.audio.thud(this.vehicle.impact);
-        this.rig.addShake(this.vehicle.impact * 0.9);
+        this.rig.addShake(this.vehicle.impact * 0.9 * this.shakeScale);
       }
       this.clockTime += dt;
       this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, 6);
@@ -466,7 +529,7 @@ class Game {
       this.props.pedestrians.update(dt, this.clockTime, this.vehicle.position);
       this.effects.update(dt);
       this._emitTyreEffects(dt);
-      this.skyEnv.update(dt, this.vehicle.position);
+      this.skyEnv.update(dt * this.clockScale, this.vehicle.position);
       this._updateNight(dt);
       this._updateSignalLenses(dt);
       this._updateFlags();
@@ -498,6 +561,7 @@ class Game {
     // ---- audio ---------------------------------------------------------
     if (driving) {
       this.audio.update(this.vehicle, input, dt);
+      this._updateAmbient(dt);
       if (input.horn !== this._hornWas) {
         this.audio.horn(input.horn);
         this._hornWas = input.horn;

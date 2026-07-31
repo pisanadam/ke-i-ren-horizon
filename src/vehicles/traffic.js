@@ -20,6 +20,7 @@ export class Traffic {
     this.scene = scene;
     this.rng = makeRng(31415926);
     this.agents = [];
+    this.density = 1;
     this.types = [];
     this.time = 0;
 
@@ -219,6 +220,9 @@ export class Traffic {
     agent.desired = chosen.e.speed * randRange(this.rng, 0.82, 1.12);
   }
 
+  /** 0 empties the roads, 1 is the normal amount. */
+  setDensity(d) { this.density = Math.max(0, Math.min(1.5, d)); }
+
   update(dt, playerVehicle) {
     this.time += dt;
     const net = this.world.network;
@@ -229,10 +233,25 @@ export class Traffic {
       if (!a.active) continue;
       if (Math.hypot(a.x - player.x, a.z - player.z) > DESPAWN) a.active = false;
     }
+    // the settings screen can thin the traffic out, or empty the roads
+    const wanted = Math.round(this.agents.length * this.density);
+    let live = 0;
+    for (const a of this.agents) if (a.active) live++;
+    if (live > wanted) {
+      let over = live - wanted;
+      for (const a of this.agents) {
+        if (over <= 0) break;
+        if (!a.active) continue;
+        if (Math.hypot(a.x - player.x, a.z - player.z) < 120) continue;
+        a.active = false;
+        over--;
+        live--;
+      }
+    }
     let budget = 7;
     for (const a of this.agents) {
-      if (a.active || budget <= 0) continue;
-      if (this._spawn(a, player)) budget--;
+      if (a.active || budget <= 0 || live >= wanted) continue;
+      if (this._spawn(a, player)) { budget--; live++; }
     }
 
     // ---- drive -----------------------------------------------------------

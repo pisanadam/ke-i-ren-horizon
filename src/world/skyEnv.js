@@ -49,6 +49,9 @@ export class SkyEnv {
     this._buildStars();
 
     this.sunPos = new THREE.Vector3();
+    this.fogScale = 1;
+    this._fogNear = 260;
+    this._fogFar = 1650;
     this.dayFactor = 1;
     this.nightFactor = 0;
     this._skyColour = new THREE.Color();
@@ -109,6 +112,17 @@ export class SkyEnv {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
+  /** 0 off, 1 low, 2 high — driven by the settings screen. */
+  setShadowQuality(level) {
+    this.sun.castShadow = level > 0;
+    const size = level >= 2 ? QUALITY.shadowMap : Math.max(512, QUALITY.shadowMap / 2);
+    if (this.sun.shadow.mapSize.x !== size) {
+      this.sun.shadow.mapSize.set(size, size);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+  }
+
   update(dt, focus) {
     if (this.autoAdvance) this.setHour(this.hour + (dt * this.timeScale) / 3600);
 
@@ -159,8 +173,8 @@ export class SkyEnv {
     this._skyColour.copy(fogNight).lerp(fogDay, day);
     this._skyColour.lerp(fogDusk, dusk * 0.55);
     this.scene.fog.color.copy(this._skyColour);
-    this.scene.fog.near = lerp(90, 300, day);
-    this.scene.fog.far = lerp(900, 1750, day) * QUALITY.fogFarScale;
+    this.scene.fog.near = lerp(90, 300, day) * this.fogScale;
+    this.scene.fog.far = lerp(900, 1750, day) * QUALITY.fogFarScale * this.fogScale;
     this.renderer.setClearColor(this._skyColour, 1);
 
     // ---- night sky -------------------------------------------------------
