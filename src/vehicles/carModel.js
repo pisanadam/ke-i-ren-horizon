@@ -193,8 +193,11 @@ function box(w, h, d, x, y, z, colour) {
   return tint(g, colour);
 }
 
-/** Tyre with rounded shoulders, a dished rim and spokes. */
-function wheelGeometry(radius, width, seg) {
+/**
+ * Tyre with rounded shoulders, a dished rim and spokes.
+ * `rim` comes from the tuning options: spoke count, face style and colour.
+ */
+function wheelGeometry(radius, width, seg, rim) {
   const parts = [];
   const hw = width / 2;
   const rimR = radius * 0.62;
@@ -216,28 +219,39 @@ function wheelGeometry(radius, width, seg) {
   tyre.rotateZ(Math.PI / 2);
   parts.push(tint(tyre, 0x15171b));
 
-  const rim = new THREE.LatheGeometry([
+  const face = rim?.colour ?? 0xc2c7cf;
+  const dish = rim?.style === 'dish';
+  // a deep-dish rim sits its face further in, a flat one nearly flush
+  const faceX = dish ? hw * 0.30 : hw * 0.86;
+  const barrel = new THREE.LatheGeometry([
     new THREE.Vector2(radius * 0.10, -hw * 0.5),
     new THREE.Vector2(rimR * 0.92, -hw * 0.1),
     new THREE.Vector2(rimR, hw * 0.4),
     new THREE.Vector2(rimR, hw * 0.92),
     new THREE.Vector2(radius * 0.12, hw * 0.92)
   ], seg);
-  rim.rotateZ(Math.PI / 2);
-  parts.push(tint(rim, 0xc2c7cf));
+  barrel.rotateZ(Math.PI / 2);
+  parts.push(tint(barrel, face));
 
   const hub = new THREE.CylinderGeometry(radius * 0.16, radius * 0.16, width * 0.5, Math.max(6, Math.round(seg / 2)));
   hub.rotateZ(Math.PI / 2);
   parts.push(tint(hub, 0x70767e));
 
-  const spokes = seg >= 20 ? 5 : 4;
+  // spokes: thinner and more of them on the busier patterns
+  const spokes = seg >= 20 ? (rim?.spokes ?? 5) : Math.min(6, rim?.spokes ?? 4);
+  const thick = clamp(0.34 / Math.sqrt(spokes / 5), 0.09, 0.34);
   for (let i = 0; i < spokes; i++) {
     const a = (i / spokes) * Math.PI * 2;
-    const spoke = new THREE.BoxGeometry(width * 0.3, radius * 0.9, radius * 0.17);
+    const spoke = new THREE.BoxGeometry(width * thick, radius * 0.92, radius * 0.16);
     spoke.rotateX(a);
-    spoke.translate(-hw * 0.12, 0, 0);
-    parts.push(tint(spoke, 0xa8adb5));
+    spoke.translate(-hw * 0.12 + (faceX - hw * 0.86) * 0.5, 0, 0);
+    parts.push(tint(spoke, face));
   }
+  // outer lip, brighter, so the rim reads as a rim and not a disc
+  const lip = new THREE.TorusGeometry(rimR * 0.99, radius * 0.035, 5, seg);
+  lip.rotateY(Math.PI / 2);
+  lip.translate(faceX * 0.55, 0, 0);
+  parts.push(tint(lip, face));
 
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
@@ -690,7 +704,7 @@ export function buildCarParts(spec, quality = 'high') {
   }
 
   // ------------------------------------------------------------- wheels
-  const wheel = wheelGeometry(wheelR, wheelW, Q.wheelSeg);
+  const wheel = wheelGeometry(wheelR, wheelW, Q.wheelSeg, spec.rim);
   const wheels = [
     { x: -track, y: wheelR, z: axleF, front: true },
     { x: track, y: wheelR, z: axleF, front: true },
@@ -755,7 +769,7 @@ function assemble(spec, Q, p) {
     signGlow: merge(p.signGeos),
     headLight: merge(p.headGeos),
     tailLight: merge(p.tailGeos),
-    wheel: wheelGeometry(wheelR, spec.wheelWidth ?? 0.1, Q.wheelSeg),
+    wheel: wheelGeometry(wheelR, spec.wheelWidth ?? 0.1, Q.wheelSeg, spec.rim),
     wheels: p.wheels,
     spec,
     dims: { sillY: wheelR, beltY: wheelR + 0.4, roofY: wheelR + 0.9 }
@@ -785,8 +799,13 @@ export function createPlayerCar(spec, colourHex) {
 
   const paintMat = MATS.paint();
   paintMat.color.setHex(colourHex);
+  if (spec.paintStyle) {
+    paintMat.roughness = spec.paintStyle.roughness;
+    paintMat.metalness = spec.paintStyle.metalness;
+  }
   const detailMat = MATS.detail();
   const glassMat = MATS.glass();
+  if (spec.glassOpacity !== undefined) glassMat.opacity = spec.glassOpacity;
 
   const bodyRoot = new THREE.Group();
   group.add(bodyRoot);

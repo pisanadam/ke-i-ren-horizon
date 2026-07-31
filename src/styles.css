@@ -845,3 +845,21 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   gap: 5px;
 }
 #coop-badge.on { display: flex; }
+
+/* ---------------- modifiye ---------------- */
+.mods-toggle { margin-top: 14px; }
+#mod-panel {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--stroke);
+}
+#mod-panel .settings-grid { max-height: 34vh; }
+#mod-panel .opt { padding: 9px 12px; font-size: 12px; }
+#mod-reset { align-self: flex-start; }
+
+@media (max-width: 900px), (pointer: coarse) {
+  #mod-panel .settings-grid { grid-template-columns: 1fr; max-height: 26vh; }
+}

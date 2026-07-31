@@ -167,10 +167,13 @@ class Game {
     this._setupHeadlights();
 
     this.menu = new Menu({
-      onSelect: (car, colour) => this._setupPlayer(car, colour, true),
+      onSelect: () => this._setupPlayer(this.menu.spec, this.menu.colour, true),
       onColour: (colour) => this.playerCar.setColour(colour),
+      getSpec: () => this.menu.spec,
       onDrive: () => this.startDriving()
     });
+
+    this._setupPlayer(this.menu.spec, this.menu.colour, false);
 
     this.settings = new Settings(this);
     this.settings.applyAll();

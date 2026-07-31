@@ -103,9 +103,22 @@ export class Vehicle {
     let engineF = 0;
     let brakeF = 0;
 
+    // Turbo spool. The tuned spec already carries the boosted power, so the
+    // engine makes power/gain off boost and the full figure once it is in —
+    // which is what gives a big turbo its lag and then its shove.
+    const gain = spec.turboGain ?? 1;
+    if (gain > 1) {
+      const lag = Math.max(0.12, spec.turboLag ?? 0.5);
+      const spooling = input.throttle > 0.05 && vLong > 1.5;
+      this.boost = damp(this.boost ?? 0, spooling ? 1 : 0, spooling ? 1.6 / lag : 3.4, dt);
+    } else {
+      this.boost = 0;
+    }
+
     if (input.throttle > 0) {
       const fade = clamp(1 - Math.max(0, vLong) / topSpeed, 0, 1);
-      engineF = spec.power * input.throttle * fade;
+      const boosted = 1 + (gain - 1) * this.boost;
+      engineF = (spec.power / gain) * boosted * input.throttle * fade;
     }
     if (input.brake > 0) {
       if (vLong > 0.6) {
