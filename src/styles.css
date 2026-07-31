@@ -782,3 +782,66 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   #nav-dist { font-size: 12.5px; }
   #nav-step { font-size: 10px; }
 }
+
+/* ---------------- co-op ---------------- */
+#coop { z-index: 31; }
+.coop-box { width: min(560px, 94vw); }
+.coop-hint { margin: 0; font-size: 12px; color: var(--muted); }
+
+.coop-code { display: flex; gap: 10px; align-items: center; }
+#coop-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font: 800 30px/1 var(--font);
+  letter-spacing: 0.42em;
+  text-align: center;
+}
+#coop-input::placeholder { color: rgba(147, 163, 192, 0.35); }
+#coop-input:focus { outline: none; border-color: rgba(255, 138, 61, 0.55); }
+
+.coop-row { display: flex; align-items: center; gap: 10px; }
+.coop-row label { font-size: 12px; color: var(--muted); letter-spacing: 0.06em; }
+#coop-name {
+  flex: 1 1 auto;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font: 600 13px/1 var(--font);
+}
+#coop-name:focus { outline: none; border-color: rgba(255, 138, 61, 0.55); }
+
+.coop-status { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--accent-2); }
+.coop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 7px; }
+.coop-list li {
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: rgba(92, 224, 138, 0.14);
+  border: 1px solid rgba(92, 224, 138, 0.32);
+  font-size: 11.5px;
+  color: #b6f0cb;
+}
+
+.coop-help { font-size: 11.5px; color: var(--muted); }
+.coop-help summary { cursor: pointer; color: var(--accent-2); }
+.coop-help p { margin: 8px 0 0; line-height: 1.55; }
+.coop-help code {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+/* co-op oyuncu sayısı rozeti */
+#coop-badge {
+  display: none;
+  align-items: center;
+  gap: 5px;
+}
+#coop-badge.on { display: flex; }

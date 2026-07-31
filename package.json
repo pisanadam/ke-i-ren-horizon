@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "node scripts/build-single.mjs",
     "build:dist": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "coop": "node server.mjs"
   },
   "dependencies": {
     "three": "^0.185.1"

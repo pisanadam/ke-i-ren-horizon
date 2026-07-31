@@ -31,6 +31,7 @@ import { MapPlan } from './ui/mapPlan.js';
 import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
 import { Settings } from './ui/settings.js';
+import { Coop } from './net/coop.js';
 import { clamp, damp, lerp } from './util/math.js';
 import { installTouchGuards } from './util/touchGuards.js';
 import { QUALITY, IS_TOUCH } from './quality.js';
@@ -173,6 +174,8 @@ class Game {
 
     this.settings = new Settings(this);
     this.settings.applyAll();
+    this.coop = new Coop(this);
+    this._bindCoop();
 
     document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
     document.getElementById('btn-settings').addEventListener('click', () => this.openSettings());
@@ -539,6 +542,67 @@ class Game {
     });
   }
 
+  // ---------------------------------------------------------------- co-op
+  _bindCoop() {
+    const el = document.getElementById('coop');
+    const input = document.getElementById('coop-input');
+    const nameEl = document.getElementById('coop-name');
+    const status = document.getElementById('coop-status');
+    const list = document.getElementById('coop-list');
+
+    document.getElementById('coop-hint').textContent = this.coop.hint;
+    nameEl.value = localStorage.getItem('ankara-coop-ad') || '';
+    input.value = localStorage.getItem('ankara-coop-oda') || '';
+
+    const refresh = () => {
+      status.textContent = this.coop.active
+        ? `Bağlı · ${this.coop.count} oyuncu · oda ${this.coop.room}`
+        : this.coop.status;
+      list.innerHTML = '';
+      for (const p of this.coop.peers.values()) {
+        const li = document.createElement('li');
+        li.textContent = p.name;
+        list.appendChild(li);
+      }
+      const badge = document.getElementById('coop-badge');
+      if (badge) {
+        badge.classList.toggle('on', this.coop.active);
+        badge.textContent = `👥 ${this.coop.count}`;
+      }
+    };
+    this.coop.onChange = refresh;
+
+    document.getElementById('btn-coop').addEventListener('click', () => {
+      if (this.state === 'driving') this.pause();
+      this.input?.releaseAll();
+      el.classList.remove('hidden');
+      refresh();
+    });
+    document.getElementById('coop-close').addEventListener('click', () => {
+      el.classList.add('hidden');
+      this.input?.clearActions();
+    });
+    document.getElementById('coop-new').addEventListener('click', () => {
+      input.value = String(Math.floor(100000 + Math.random() * 900000));
+    });
+    document.getElementById('coop-leave').addEventListener('click', () => {
+      this.coop.leave();
+      this.hud.showToast('Co-op kapatıldı', 1.6);
+    });
+    document.getElementById('coop-join').addEventListener('click', () => {
+      const code = input.value.replace(/\D/g, '');
+      localStorage.setItem('ankara-coop-oda', code);
+      localStorage.setItem('ankara-coop-ad', nameEl.value);
+      if (this.coop.join(code, nameEl.value || 'Oyuncu')) {
+        this.hud.showToast(`${code} odasına bağlanılıyor…`, 2.2);
+      }
+    });
+    input.addEventListener('input', () => {
+      input.value = input.value.replace(/\D/g, '').slice(0, 6);
+    });
+    refresh();
+  }
+
   toggleFullscreen() {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen?.().catch(() => {});
@@ -869,6 +933,7 @@ class Game {
       this._hornWas = false;
     }
 
+    this.coop?.update(dt);
     this._updatePrompt();
     if (driving || onFoot) this._updateNav(dt); else document.getElementById('nav')?.classList.add('hidden');
 

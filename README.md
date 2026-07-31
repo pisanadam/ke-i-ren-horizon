@@ -47,6 +47,45 @@ npm run build:dist # isteyen olursa klasik çok dosyalı dist/ çıktısı
 
 ---
 
+## Birlikte oynamak (co-op)
+
+Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
+adın. Aynı kodu giren herkes aynı Ankara'da buluşur; arkadaşının aracı
+haritada ve yolda görünür.
+
+Burada bilmen gereken bir kısıt var: **tarayıcı gelen bağlantı dinleyemez.**
+Yani tek başına bir HTML dosyası iki ayrı cihazı kendi kendine buluşturamaz —
+bu oyunun eksiği değil, tarayıcının yapamadığı bir şey. İki yol var:
+
+**Aynı bilgisayarda, kurulum yok.** Dosyayı iki sekmede aç, ikisinde de aynı
+kodu gir. Oyun `BroadcastChannel` ile sekmeleri doğrudan konuşturur.
+
+**Aynı ağdaki iki cihaz.** Birinizin oyunun klasöründe sunucuyu açması yeter:
+
+```bash
+node server.mjs
+```
+
+Yazdırdığı adresi (`http://192.168.x.x:7777`) herkes tarayıcısında açsın ve
+aynı kodu girsin. Sunucunun hiçbir bağımlılığı yok — WebSocket el sıkışması
+ve çerçeveleme dosyanın içinde yazılı, çünkü başka her şeyi tek dosyaya
+sığdırmış bir oyunun birlikte oynamak için `npm install` istemesi tuhaf
+olurdu. Sunucu sadece mesajları aktarır; oyunu yine herkes kendi
+tarayıcısında çalıştırır.
+
+### Araçlar neden zıplamıyor
+
+Gelen her paketi geldiği anda uygulamak, aracın paketler arasında durup
+sonra sıçraması demektir — ışınlanma hissi buradan gelir. Onun yerine uzak
+oyuncular **140 ms geçmişte** çizilir: elde neredeyse her zaman ileride bir
+paket daha olduğu için araç iki anlık görüntü arasında **süzülür**. Ara
+değer düz bir doğru değil, iki uçtaki hızı teğet alan bir Hermite eğrisidir;
+böylece viraja giren araç köşeyi kesip geri sıçramaz, virajı takip eder.
+Paketin gecikmesi hâlinde son bilinen hızla en fazla 0,35 saniye tahmin
+yürütülür, sonrası beklenir.
+
+---
+
 ## Kontroller
 
 | Tuş | İşlev |
