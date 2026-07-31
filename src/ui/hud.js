@@ -110,8 +110,10 @@ export class Hud {
     ctx.stroke();
     ctx.lineCap = 'butt';
 
-    // ticks
-    const majorEvery = maxKmh > 220 ? 40 : 20;
+    // Ticks. The interval has to follow the range or a dial that reads to
+    // 2200 km/h ends up with a hundred labels stacked on top of each other.
+    const majorEvery = [20, 40, 100, 200, 250, 500]
+      .find((n) => maxKmh / n <= 11) ?? 1000;
     ctx.font = `600 ${Math.round(R * 0.10)}px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

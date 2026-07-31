@@ -120,8 +120,17 @@ export class Vehicle {
       brakeF += -spec.brake * 0.55 * sign(vLong);
     }
 
-    const aero = (spec.power * 0.10) / (topSpeed * topSpeed);
-    const dragF = -aero * vLong * Math.abs(vLong);
+    // Quadratic drag opposing the direction of travel. Using the total speed
+    // rather than each component on its own matters only when a car is moving
+    // sideways — but a vehicle with no grip does that constantly, and the
+    // component form lets it accelerate forever with its nose across the wind.
+    // Past the design speed drag climbs much faster than v², so there is a
+    // real terminal velocity: a long enough hill can no longer push a car to
+    // several times what it is supposed to be capable of.
+    const airSpeed = Math.hypot(vLong, vLat);
+    const over = Math.max(0, airSpeed / topSpeed - 1);
+    const aero = ((spec.power * 0.10) / (topSpeed * topSpeed)) * (1 + over * 14);
+    const dragF = -aero * airSpeed * vLong;
     const rollF = -spec.mass * 0.016 * G * sign(vLong) * Math.min(1, Math.abs(vLong) / 1.2);
     const offRoadDrag = this.onRoad ? 0 : -spec.mass * 0.05 * G * sign(vLong) * Math.min(1, Math.abs(vLong) / 2);
 
@@ -150,15 +159,24 @@ export class Vehicle {
     const forceF = clamp(-stiffness * slipF, -maxF, maxF);
     const forceR = clamp(-stiffness * (input.handbrake ? 0.42 : 1) * slipR, -maxR, maxR);
 
-    let aLat = (forceF + forceR) / spec.mass;
+    const dragLat = -aero * airSpeed * vLat;
+
+    let aLat = (forceF + forceR + dragLat) / spec.mass;
     // a rightward force at the front yaws the nose right, i.e. yaw decreases
     let yawAcc = (forceR * halfWB - forceF * halfWB) / this.inertia;
 
     // At crawling speed the slip model has nothing to work with, so fall back
     // to a kinematic steering response for parking manoeuvres.
-    const kin = clamp(1 - Math.abs(vLong) / 5.5, 0, 1);
+    //
+    // A vehicle with no grip at all never leaves that fallback: the tyres
+    // generate nothing, so steering can only point the thing, and it is the
+    // thrust along the nose that eventually drags the velocity round. Sliding
+    // is the whole idea, but the yaw rate still has to be capped or a pram at
+    // two thousand km/h spins several hundred times a second.
+    const kin = spec.grip <= 0 ? 1 : clamp(1 - Math.abs(vLong) / 5.5, 0, 1);
     if (kin > 0) {
-      const kinYaw = -(vLong / spec.wheelBase) * Math.tan(this.steer);
+      let kinYaw = -(vLong / spec.wheelBase) * Math.tan(this.steer);
+      if (spec.grip <= 0) kinYaw = clamp(kinYaw, -2.6, 2.6);
       const blendYawRate = this.yawRate + yawAcc * dt;
       const newRate = blendYawRate * (1 - kin) + kinYaw * kin;
       yawAcc = (newRate - this.yawRate) / Math.max(dt, 1e-4);
@@ -322,7 +340,7 @@ export class Vehicle {
       const wx = this.position.x + this._fwd.x * z2 - this._right.x * x1;
       const wz = this.position.z + this._fwd.z * z2 - this._right.z * x1;
 
-      const want = ground.heightAt(wx, wz) + spec.wheelRadius;
+      const want = ground.heightAt(wx, wz) + (d.radius ?? spec.wheelRadius);
       const travel = clamp(want - (this.position.y + y2), -0.22, 0.22);
       holder.position.y = damp(holder.position.y, d.baseY + travel, 14, dt);
     }

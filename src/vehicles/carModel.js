@@ -250,12 +250,146 @@ export function sillHeight(spec) {
 }
 
 /**
+ * The pram. Nothing here is shared with the car loft — it is a bassinet on a
+ * folding frame, four castor wheels, a push handle, and the pair of rocket
+ * motors that make it a genuinely alarming thing to meet on Atatürk Bulvarı.
+ */
+function pramParts(spec, Q) {
+  const paint = [];
+  const detail = [];
+  const glass = [];
+  const headGeos = [];
+  const tailGeos = [];
+  const signGeos = [];
+
+  const seg = Math.max(8, Q.wheelSeg);
+  const tubY = 0.50;                    // height of the bassinet floor
+  const tubL = 0.38;                    // half-length of the tub
+  const tubW = 0.26;                    // half-width
+  const tubD = 0.26;                    // depth of the tub
+  const lipY = tubY + tubD;             // height of the rim
+
+  // ---------------------------------------------------------- the bassinet
+  const tub = new THREE.SphereGeometry(1, seg, Math.max(6, seg >> 1), 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5);
+  tub.scale(tubW, tubD, tubL);
+  tub.translate(0, lipY, 0.02);
+  paint.push(tint(tub, 0xffffff));
+
+  // Rolled rim around the top. A torus rotated flat lies in XZ, so the scale
+  // has to go on X and Z — putting it on Y instead stretched the ring into a
+  // two-metre pink hoop and blew up the shadow bounds with it.
+  const rim = new THREE.TorusGeometry(1, 0.05, 6, seg);
+  rim.rotateX(Math.PI / 2);
+  rim.scale(tubW, 1, tubL);
+  rim.translate(0, lipY, 0.02);
+  paint.push(tint(rim, 0xffffff));
+
+  // ------------------------------------------------------------- the hood
+  const hoodR = tubL * 0.78;
+  const hood = new THREE.CylinderGeometry(hoodR, hoodR, tubW * 2, seg, 1, true, 0, Math.PI);
+  hood.rotateZ(Math.PI / 2);            // axis now runs along X, arch over +Z
+  hood.translate(0, lipY, -0.12);
+  paint.push(tint(hood, 0xffffff));
+  // ribs across the hood, so it reads as folding fabric
+  for (let i = 0; i < 3; i++) {
+    const r = new THREE.TorusGeometry(hoodR + 0.006, 0.014, 5, seg, Math.PI);
+    r.rotateY(Math.PI / 2);
+    r.translate(0, lipY, -0.12 + (i - 1) * 0.09);
+    detail.push(tint(r, 0x2a2f36));
+  }
+
+  // ------------------------------------------------------------ the baby
+  const head = new THREE.SphereGeometry(0.085, seg, Math.max(4, seg >> 1));
+  head.translate(0, lipY + 0.03, -0.10);
+  detail.push(tint(head, 0xf0c9a6));
+  const blanket = new THREE.SphereGeometry(1, seg, Math.max(4, seg >> 1), 0, Math.PI * 2, 0, Math.PI * 0.5);
+  blanket.scale(tubW * 0.88, 0.08, tubL * 0.6);
+  blanket.translate(0, lipY - 0.02, 0.13);
+  detail.push(tint(blanket, 0xdb6f8e));
+
+  // ---------------------------------------------------------- the frame
+  const tube = (x1, y1, z1, x2, y2, z2, r, colour) => {
+    const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+    const len = Math.hypot(dx, dy, dz) || 0.001;
+    const g = new THREE.CylinderGeometry(r, r, len, 7);
+    g.translate(0, len / 2, 0);
+    const m = new THREE.Matrix4();
+    const up = new THREE.Vector3(0, 1, 0);
+    const dir = new THREE.Vector3(dx, dy, dz).normalize();
+    m.makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(up, dir));
+    m.setPosition(x1, y1, z1);
+    g.applyMatrix4(m);
+    return tint(g, colour);
+  };
+
+  const CHROME = 0x9aa3ad;
+  const axleF = spec.wheelBase / 2;
+  const axleR = -spec.wheelBase / 2;
+  const track = spec.width / 2 - 0.06;
+
+  const handleY = lipY + 0.34;
+  for (const s of [-1, 1]) {
+    // front and rear legs up to the tub
+    detail.push(tube(s * track, 0.20, axleF, s * tubW * 0.9, tubY + 0.02, 0.18, 0.024, CHROME));
+    detail.push(tube(s * track, 0.24, axleR, s * tubW * 0.9, tubY + 0.02, -0.22, 0.024, CHROME));
+    // side rail under the tub
+    detail.push(tube(s * tubW * 0.9, tubY + 0.02, 0.22, s * tubW * 0.9, tubY + 0.02, -0.26, 0.022, CHROME));
+    // the push handle, swept up and back
+    detail.push(tube(s * tubW * 0.88, lipY - 0.06, -0.24, s * 0.20, handleY, -0.40, 0.023, CHROME));
+  }
+  // handle crossbar
+  detail.push(tube(-0.20, handleY, -0.40, 0.20, handleY, -0.40, 0.026, 0x2b3138));
+  // axles
+  detail.push(tube(-track, 0.20, axleF, track, 0.20, axleF, 0.019, CHROME));
+  detail.push(tube(-track, 0.24, axleR, track, 0.24, axleR, 0.021, CHROME));
+
+  // shopping basket slung underneath
+  const basket = new THREE.BoxGeometry(spec.width * 0.66, 0.12, 0.44);
+  basket.translate(0, 0.27, -0.02);
+  detail.push(tint(basket, 0x3d444d));
+
+  // ------------------------------------------------------ rocket motors
+  for (const s of [-1, 1]) {
+    const nozzle = new THREE.CylinderGeometry(0.062, 0.095, 0.22, seg);
+    nozzle.rotateX(Math.PI / 2);
+    nozzle.translate(s * 0.15, tubY - 0.02, -0.40);
+    detail.push(tint(nozzle, 0x4a4f56));
+    const collar = new THREE.TorusGeometry(0.07, 0.018, 5, seg);
+    collar.translate(s * 0.15, tubY - 0.02, -0.30);
+    detail.push(tint(collar, 0x8d939b));
+    // the flame doubles as the brake light, so it flares when you slow down
+    const flame = new THREE.ConeGeometry(0.07, 0.28, seg);
+    flame.rotateX(-Math.PI / 2);
+    flame.translate(s * 0.15, tubY - 0.02, -0.62);
+    tailGeos.push(tint(flame, 0xff7a2a));
+  }
+
+  // a lamp on the front rail, because it is still a pram
+  const lamp = new THREE.SphereGeometry(0.045, seg, Math.max(4, seg >> 1));
+  lamp.translate(0, lipY - 0.06, tubL + 0.03);
+  headGeos.push(tint(lamp, 0xfff2cf));
+
+  const wheels = [
+    { x: -track, y: 0.20, z: axleF, front: true, r: 0.20, s: 0.66 },
+    { x: track, y: 0.20, z: axleF, front: true, r: 0.20, s: 0.66 },
+    { x: -track, y: 0.24, z: axleR, front: false, r: 0.24, s: 0.80 },
+    { x: track, y: 0.24, z: axleR, front: false, r: 0.24, s: 0.80 }
+  ];
+
+  return { paint, detail, glass, headGeos, tailGeos, signGeos, wheels };
+}
+
+/**
  * Builds all geometry for one vehicle spec.
  * @param {object} spec entry from the catalogue
  * @param {'high'|'low'} quality mesh density
  */
 export function buildCarParts(spec, quality = 'high') {
   const Q = QUALITY[quality] ?? QUALITY.high;
+
+  // the pram is not a car in any useful sense, so it skips the whole loft
+  if (spec.body === 'pram') return assemble(spec, Q, pramParts(spec, Q));
+
   const L = spec.length;
   const W = spec.width;
   const wheelR = spec.wheelRadius;
@@ -594,6 +728,40 @@ export function buildCarParts(spec, quality = 'high') {
   };
 }
 
+/**
+ * Turns loose geometry lists into the part set every caller expects. The car
+ * loft builds its own; the pram hands its pieces here instead.
+ */
+function assemble(spec, Q, p) {
+  const merge = (arr) => {
+    const valid = arr.filter(Boolean);
+    if (!valid.length) return null;
+    const m = mergeGeometries(valid, false);
+    if (!m) {
+      console.warn(`[${spec.id}] geometry merge failed`);
+      return valid[0];
+    }
+    valid.forEach((g) => g.dispose());
+    return m;
+  };
+  const copies = (arr) => arr.map((g) => g.clone());
+  const wheelR = spec.wheelRadius;
+
+  return {
+    paint: merge(p.paint),
+    detail: merge(p.detail),
+    glass: merge(p.glass),
+    glow: merge([...copies(p.signGeos), ...copies(p.headGeos), ...copies(p.tailGeos)]),
+    signGlow: merge(p.signGeos),
+    headLight: merge(p.headGeos),
+    tailLight: merge(p.tailGeos),
+    wheel: wheelGeometry(wheelR, spec.wheelWidth ?? 0.1, Q.wheelSeg),
+    wheels: p.wheels,
+    spec,
+    dims: { sillY: wheelR, beltY: wheelR + 0.4, roofY: wheelR + 0.9 }
+  };
+}
+
 const MATS = {
   paint: () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.26, metalness: 0.6 }),
   detail: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.3 }),
@@ -648,6 +816,7 @@ export function createPlayerCar(spec, colourHex) {
     holder.position.set(w.x, w.y, w.z);
     const mesh = new THREE.Mesh(parts.wheel, wheelMat);
     mesh.castShadow = true;
+    if (w.s) mesh.scale.setScalar(w.s);
     holder.add(mesh);
     holder.userData.front = w.front;
     holder.userData.spin = mesh;
@@ -655,6 +824,8 @@ export function createPlayerCar(spec, colourHex) {
     holder.userData.baseX = w.x;
     holder.userData.baseY = w.y;
     holder.userData.baseZ = w.z;
+    // a pram runs small castors up front and larger wheels behind
+    holder.userData.radius = w.r ?? spec.wheelRadius;
     group.add(holder);
     return holder;
   });

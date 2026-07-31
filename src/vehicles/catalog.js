@@ -135,6 +135,24 @@ export const CARS = [
   }
 ];
 
+CARS.push({
+  id: 'bebek',
+  name: 'Roketli Bebek Arabası',
+  class: 'Dehşet',
+  desc: 'Bir saniyede 2000 km/s. Yol tutuşu tam olarak sıfır — lastikler hiçbir şey tutmaz, ' +
+    'yön sadece burnu çevirip roketi ateşleyerek değişir. Fren neredeyse yok. Bebek uyuyor.',
+  colours: [0xf2a8c4, 0x7fd4ff, 0xf5e663, 0xc6f0b8, 0xe8e8e6, 0x1b1d21],
+  body: 'pram',
+  length: 1.15, width: 0.62, wheelBase: 0.78, rideHeight: 0.18,
+  bodyHeight: 0.42, cabinHeight: 0.34, wheelRadius: 0.22, wheelWidth: 0.10,
+  cabinBack: -0.5, cabinFront: 0.3, roofBack: 0.2, roofFront: 0.2,
+  // Drag is derived from power and topSpeed, so the speed it actually settles
+  // at is about 91% of topSpeed whatever the power — the ceiling is set high
+  // enough that it levels out on 2000 km/h.
+  mass: 14, power: 48000, topSpeed: 610, grip: 0, brake: 1400, steerMax: 0.85,
+  stats: { speed: 1, accel: 1, grip: 0, brake: 0.06 }
+});
+
 export const CAR_BY_ID = Object.fromEntries(CARS.map((c) => [c.id, c]));
 
 /** Vehicles the AI uses for background traffic, with how often each appears. */
