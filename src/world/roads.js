@@ -86,16 +86,26 @@ function ribbon(path, left, right, rise, uvLen = 8, uvWide = 8, leftRise = 0, ri
 }
 
 /** Flat quad centred on (x,z) with a heading, used for markings. */
-function stripe(x, y, z, dirX, dirZ, length, width) {
+/**
+ * A painted stripe lying on the tarmac.
+ *
+ * Each corner takes its height from the road under it rather than from one
+ * value for the whole quad: a flat stripe on a 17% grade stands a foot clear
+ * of the surface at one end, which is what left lane markings hanging in the
+ * air along the hillier streets.
+ */
+function stripe(x, y, z, dirX, dirZ, length, width, surface) {
   const rx = dirZ;
   const rz = -dirX;
   const hl = length * 0.5;
   const hw = width * 0.5;
+  const corner = (a, b) => {
+    const cx = x + dirX * hl * a - rx * hw * b;
+    const cz = z + dirZ * hl * a - rz * hw * b;
+    return [cx, surface ? surface(cx, cz) : y, cz];
+  };
   const verts = [
-    x - dirX * hl - rx * hw, y, z - dirZ * hl - rz * hw,
-    x + dirX * hl - rx * hw, y, z + dirZ * hl - rz * hw,
-    x - dirX * hl + rx * hw, y, z - dirZ * hl + rz * hw,
-    x + dirX * hl + rx * hw, y, z + dirZ * hl + rz * hw
+    ...corner(-1, 1), ...corner(1, 1), ...corner(-1, -1), ...corner(1, -1)
   ];
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
@@ -291,10 +301,16 @@ export function buildRoads(network) {
         };
       };
 
+      // the tarmac height under any point, which is what the stripes ride on
+      const surface = (sx, sz) => {
+        const n = network.nearestRoad(sx, sz);
+        return (n ? n.y : y) + my;
+      };
+
       // dashed centre line
       for (let s = 3; s < total - 3; s += 11) {
         const p = at(s);
-        marks.push(stripe(p.x, p.y + my, p.z, p.dx, p.dz, 4.2, 0.18));
+        marks.push(stripe(p.x, p.y + my, p.z, p.dx, p.dz, 4.2, 0.18, surface));
       }
       // solid edge lines
       const edgeLine = (off) => {
@@ -308,7 +324,7 @@ export function buildRoads(network) {
         // painted median hatching on the ring road
         for (let s = 2; s < total - 2; s += 5) {
           const p = at(s);
-          marks.push(stripe(p.x, p.y + my, p.z, p.dx, p.dz, 3.4, 0.5));
+          marks.push(stripe(p.x, p.y + my, p.z, p.dx, p.dz, 3.4, 0.5, surface));
         }
         edgeLine(-hw * 0.5);
         edgeLine(hw * 0.5);
@@ -342,9 +358,13 @@ export function buildRoads(network) {
       const rx = dz;
       const rz = -dx;
       const bars = Math.max(3, Math.floor(hw));
+      const zSurface = (sx, sz) => {
+        const n = this?.network?.nearestRoad?.(sx, sz) || network.nearestRoad(sx, sz);
+        return (n ? n.y : node.y) + e.layer + 0.02;
+      };
       for (let b = 0; b < bars; b++) {
         const off = -hw + 0.9 + b * ((hw * 2 - 1.8) / Math.max(1, bars - 1));
-        marks.push(stripe(cx + rx * off, cy, cz + rz * off, dx, dz, 3.2, 0.52));
+        marks.push(stripe(cx + rx * off, cy, cz + rz * off, dx, dz, 3.2, 0.52, zSurface));
       }
     }
   }

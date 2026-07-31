@@ -9,6 +9,7 @@ import { buildBuildings } from './world/buildings.js';
 import { buildProps } from './world/props.js';
 import { buildLandmarks, buildTeleferik } from './world/landmarks.js';
 import { Metro } from './world/metro.js';
+import { buildRamps } from './world/ramps.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
@@ -119,6 +120,8 @@ class Game {
     await step(52, 'Teleferik hattı geriliyor…');
     this.teleferik = buildTeleferik(this.ground);
     this.scene.add(this.teleferik.group);
+
+    this.scene.add(buildRamps(this.ground, this.colliders));
 
     await step(60, 'Metro hatları döşeniyor…');
     this.metro = new Metro(this.ground, this.colliders, this.network);

@@ -1,3 +1,5 @@
+import { makeRng } from '../util/math.js';
+
 /**
  * Keçiören (Ankara) — stylised street layout.
  *
@@ -390,6 +392,8 @@ export const DISTRICT_GRIDS = [
   { x: 620, z: 4200, w: 700, h: 460, spacing: 148, keep: 0.42, jitter: 24 }
 ];
 
+
+
 /** Neighbourhood centres — used for the on-screen "you are here" label. */
 export const ZONES = [
   { name: 'Basınevleri', x: 20, z: 840 },
@@ -623,3 +627,123 @@ export const SPAWN_POINTS = [
   { name: 'Esenboğa Havalimanı', x: 2500, z: -4080, yaw: Math.PI },
   { name: 'Gölbaşı', x: 330, z: 4340, yaw: -Math.PI / 2 }
 ];
+
+/**
+ * Ankara does not stop between its districts, and neither should the map:
+ * outside the named centres the ground was empty hillside for kilometres.
+ *
+ * Smaller settlements are laid on a jittered lattice over everything the hand
+ * -placed districts do not already cover — the villages, industrial strips
+ * and outer neighbourhoods that fill the gaps in the real city. Each is a
+ * small grid of streets; the roads that join them up are generated with them.
+ */
+const FILLER = (() => {
+  const rng = makeRng(90210);
+  const grids = [];
+  const links = [];
+  const centres = [];
+  const STEP = 610;
+  const EDGE = MAP.half - 260;
+
+  const insideNamed = (x, z) => DISTRICT_GRIDS.some((g) =>
+    Math.abs(x - g.x) < g.w * 0.5 + 300 && Math.abs(z - g.z) < g.h * 0.5 + 300);
+  const onLandmark = (x, z) => LANDMARKS.some((l) =>
+    Math.hypot(x - l.x, z - l.z) < l.radius + 160);
+
+  for (let gx = -EDGE; gx <= EDGE; gx += STEP) {
+    for (let gz = -EDGE; gz <= EDGE; gz += STEP) {
+      const x = Math.round(gx + (rng() - 0.5) * STEP * 0.45);
+      const z = Math.round(gz + (rng() - 0.5) * STEP * 0.45);
+      if (Math.abs(x) > EDGE || Math.abs(z) > EDGE) continue;
+      if (insideNamed(x, z) || onLandmark(x, z)) continue;
+
+      // the further from the centre, the smaller and sparser the settlement
+      const far = Math.min(1, Math.hypot(x, z - 1600) / (MAP.half * 0.9));
+      const size = Math.round(500 - far * 150);
+      grids.push({
+        x, z, w: size, h: Math.round(size * (0.8 + rng() * 0.4)),
+        spacing: Math.round(150 + far * 44),
+        keep: 0.62 - far * 0.22,
+        jitter: 18 + Math.round(rng() * 14)
+      });
+      centres.push({ x, z });
+    }
+  }
+
+  // join each settlement to its two nearest neighbours, so nothing is stranded
+  const seen = new Set();
+  for (let i = 0; i < centres.length; i++) {
+    const a = centres[i];
+    const near = centres
+      .map((c, j) => ({ c, j, d: Math.hypot(c.x - a.x, c.z - a.z) }))
+      .filter((o) => o.j !== i && o.d < STEP * 1.9)
+      .sort((p, q) => p.d - q.d)
+      .slice(0, 2);
+    for (const n of near) {
+      const key = i < n.j ? `${i}-${n.j}` : `${n.j}-${i}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const b = n.c;
+      // a gently bent connector rather than a dead-straight line
+      const mx = (a.x + b.x) / 2 + (rng() - 0.5) * 130;
+      const mz = (a.z + b.z) / 2 + (rng() - 0.5) * 130;
+      links.push({
+        name: `Bağlantı Yolu ${links.length + 1}`,
+        type: n.d > STEP * 1.35 ? 'main' : 'street',
+        points: [
+          [a.x, a.z],
+          [Math.round(a.x + (mx - a.x) * 0.55), Math.round(a.z + (mz - a.z) * 0.55)],
+          [Math.round(mx), Math.round(mz)],
+          [Math.round(mx + (b.x - mx) * 0.55), Math.round(mz + (b.z - mz) * 0.55)],
+          [b.x, b.z]
+        ]
+      });
+    }
+  }
+  return { grids, links };
+})();
+
+DISTRICT_GRIDS.push(...FILLER.grids);
+ROADS.push(...FILLER.links);
+
+/**
+ * Jump ramps. Placed beside the arteries where there is room to get a run at
+ * them; the height field knows about these, so they are driven up rather than
+ * driven through.
+ */
+export const RAMPS = [
+  { x: 210, z: -120, yaw: 0.1, len: 22, wide: 9, rise: 3.4 },
+  { x: -300, z: -350, yaw: 1.6, len: 26, wide: 10, rise: 4.2 },
+  { x: 620, z: 300, yaw: -1.5, len: 20, wide: 8, rise: 3.0 },
+  { x: -120, z: 1310, yaw: 0.05, len: 28, wide: 11, rise: 4.6 },
+  { x: 300, z: 1880, yaw: -1.55, len: 24, wide: 9, rise: 3.8 },
+  { x: -560, z: 2600, yaw: 0.9, len: 26, wide: 10, rise: 4.4 },
+  { x: 900, z: 2000, yaw: 3.0, len: 22, wide: 9, rise: 3.4 },
+  { x: -1180, z: 2450, yaw: -0.4, len: 30, wide: 11, rise: 5.2 },
+  { x: -2000, z: 980, yaw: 1.2, len: 26, wide: 10, rise: 4.2 },
+  { x: -3100, z: 1120, yaw: 0.2, len: 24, wide: 9, rise: 3.8 },
+  { x: 1450, z: -2100, yaw: -0.8, len: 28, wide: 10, rise: 4.8 },
+  { x: 60, z: 3600, yaw: 0.4, len: 30, wide: 11, rise: 5.4 },
+  { x: 1750, z: 900, yaw: 2.2, len: 24, wide: 9, rise: 3.6 },
+  { x: -700, z: -520, yaw: -1.1, len: 22, wide: 9, rise: 3.2 }
+];
+
+/** Local ramp coordinates for a world point, or null if it is not on one. */
+export function rampAt(x, z) {
+  for (const r of RAMPS) {
+    const dx = x - r.x;
+    const dz = z - r.z;
+    // into the ramp's frame: u runs up the slope, v across it. Forward is
+    // (sin yaw, cos yaw) and right is (cos yaw, -sin yaw), the same basis
+    // ramps.js meshes with — getting the sign wrong skews the drivable
+    // surface away from the one you can see.
+    const c = Math.cos(r.yaw);
+    const sn = Math.sin(r.yaw);
+    const u = dx * sn + dz * c;
+    const v = dx * c - dz * sn;
+    if (u < 0 || u > r.len) continue;
+    if (Math.abs(v) > r.wide / 2) continue;
+    return { ramp: r, u: u / r.len, v: v / (r.wide / 2) };
+  }
+  return null;
+}

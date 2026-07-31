@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { baseHeight } from './heightfield.js';
-import { MAP, LANDMARKS } from './mapData.js';
+import { MAP, LANDMARKS, RAMPS, rampAt } from './mapData.js';
 import { clamp, lerp, smoothstep, fbm } from '../util/math.js';
 import { grassTexture } from '../textures.js';
 import { QUALITY } from '../quality.js';
@@ -32,7 +32,23 @@ export class Ground {
    * pavement sits a kerb-height above it (so mounting the kerb is a real
    * bump), and beyond that it blends back into the hillside.
    */
+  /** Extra height from a jump ramp, if the point is on one. */
+  rampRise(x, z) {
+    const hit = rampAt(x, z);
+    if (!hit) return 0;
+    // eases in at the foot and tapers off at the sides so it is not a wall
+    const up = hit.u * hit.u * (3 - 2 * hit.u);
+    const side = 1 - Math.pow(Math.abs(hit.v), 6);
+    return hit.ramp.rise * up * Math.max(0, side);
+  }
+
   heightAt(x, z) {
+    const rise = this.rampRise(x, z);
+    if (rise > 0) return this._surface(x, z) + rise;
+    return this._surface(x, z);
+  }
+
+  _surface(x, z) {
     const r = this.net.nearestRoad(x, z);
     const base = baseHeight(x, z);
     if (!r) return base;
