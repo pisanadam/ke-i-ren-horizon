@@ -6,6 +6,8 @@
  *   brake     — braking force, newtons
  */
 
+import { EXTRA_CARS } from './catalogExtra.js';
+
 export const CARS = [
   {
     id: 'hatchback',
@@ -134,6 +136,8 @@ export const CARS = [
     stats: { speed: 0.22, accel: 0.24, grip: 0.24, brake: 0.4 }
   }
 ];
+
+CARS.push(...EXTRA_CARS);
 
 CARS.push({
   id: 'bebek',

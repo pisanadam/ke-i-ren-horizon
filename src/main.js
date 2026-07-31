@@ -191,6 +191,7 @@ class Game {
         mats.forEach((m) => m?.dispose());
       });
     }
+    this.audio?.setVehicle(spec);
     this.playerCar = createPlayerCar(spec, colour);
     this.scene.add(this.playerCar.group);
     if (this.headlights) this.playerCar.group.add(this.headlights);

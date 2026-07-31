@@ -102,8 +102,24 @@ export class AudioEngine {
     this.squealGain.connect(this.master);
     this.squeal.start();
 
+    // turbo whistle, silent unless the car's voice asks for it
+    this.turboOsc = ctx.createOscillator();
+    this.turboOsc.type = 'triangle';
+    this.turboOsc.frequency.value = 3000;
+    this.turboGain = ctx.createGain();
+    this.turboGain.gain.value = 0;
+    const turboBp = ctx.createBiquadFilter();
+    turboBp.type = 'bandpass';
+    turboBp.frequency.value = 3200;
+    turboBp.Q.value = 3;
+    this.turboOsc.connect(turboBp);
+    turboBp.connect(this.turboGain);
+    this.turboGain.connect(this.master);
+    this.turboOsc.start();
+
     this._brakeWobble = 0;
     this._ambient();
+    if (this._voice) this.setVehicle({ voice: this._voice });
   }
 
   /**
@@ -277,6 +293,25 @@ export class AudioEngine {
     this.master.gain.value = this.muted ? 0 : this.levels.master;
   }
 
+  /**
+   * Retunes the oscillator bank for a particular car. A V8 fires twice as
+   * often per revolution as a four and leans on its low harmonics; a rotary
+   * has no pistons at all and screams. Called whenever the player swaps cars.
+   */
+  setVehicle(spec) {
+    this._voice = spec?.voice || null;
+    if (!this.started || !this.osc) return;
+    const v = this._voice;
+    if (!v || v.electric) return;
+    for (let i = 0; i < this.osc.length; i++) {
+      const o = this.osc[i];
+      o.ratio = v.harm?.[i] ?? [1, 2.02, 0.5][i];
+      o.o.type = v.type?.[i] ?? (i === 2 ? 'square' : 'sawtooth');
+      o.g.gain.value = v.gain?.[i] ?? (i === 2 ? 0.18 : 0.4);
+    }
+    this.engineFilter.Q.value = v.q ?? 6;
+  }
+
   /** Per-channel volumes from the settings screen. */
   setLevels(levels) {
     Object.assign(this.levels, levels);
@@ -310,6 +345,8 @@ export class AudioEngine {
     // Off the throttle the engine has to fall back to idle. Following v.rpm
     // straight through meant a car rolling down a hill revved up on its own
     // and sounded exactly like the gas was pinned.
+    const voice = spec.voice || this._voice || {};
+    const redline = voice.redline ?? 7000;
     const idleRpm = 900;
     const target = load > 0 ? v.rpm : idleRpm + (v.rpm - idleRpm) * 0.08;
     // revs snap up on the throttle and fall away gently on the overrun
@@ -321,26 +358,43 @@ export class AudioEngine {
 
     if (spec.electric) {
       this.engineGain.gain.setTargetAtTime(0.02, now, 0.1);
-      const f = 180 + speed * 26 * (0.25 + load * 0.75);
+      const w = voice.whine ?? [180, 26];
+      // clamped: an unbounded ramp reaches 2.4 kHz at motorway speed, which
+      // is a dentist's drill rather than a motor
+      const f = clamp(w[0] + speed * w[1] * (0.25 + load * 0.75), 120, 1250);
       this.whine.frequency.setTargetAtTime(f, now, 0.05);
       this.whineGain.gain.setTargetAtTime(0.008 + load * 0.072, now, 0.08);
-      this.engineFilter.frequency.setTargetAtTime(900, now, 0.1);
+      this.engineFilter.frequency.setTargetAtTime(voice.cut ?? 900, now, 0.1);
+      if (this.turboGain) this.turboGain.gain.setTargetAtTime(0, now, 0.15);
     } else {
       this.whineGain.gain.setTargetAtTime(0, now, 0.1);
-      const base = (rpm / 60) * 2;
+      // firing frequency: a four-stroke fires cyl/2 times per revolution
+      const cyl = voice.cyl ?? 4;
+      const base = (rpm / 60) * (cyl / 2);
       for (const o of this.osc) {
-        o.o.frequency.setTargetAtTime(clamp(base * o.ratio, 20, 900), now, 0.035);
+        o.o.frequency.setTargetAtTime(clamp(base * o.ratio, 18, 1400), now, 0.035);
       }
       const heaviness = spec.mass > 4000 ? 0.6 : 1;
       // a quiet idle underneath, and the note only opens up under throttle
       this.engineGain.gain.setTargetAtTime(
         (0.014 + load * 0.13) * heaviness, now, load > 0 ? 0.05 : 0.16
       );
+      const cut = voice.cut ?? [420, 2600];
       this.engineFilter.frequency.setTargetAtTime(
-        lerp(420, 2600, clamp(rpm / 7000, 0, 1) * (0.3 + load * 0.7)), now, 0.06
+        lerp(cut[0], cut[1], clamp(rpm / redline, 0, 1) * (0.3 + load * 0.7)), now, 0.06
       );
-      this.exhaust.gain.gain.setTargetAtTime(0.004 + load * 0.058, now, load > 0 ? 0.06 : 0.18);
+      const ex = voice.ex ?? 1;
+      this.exhaust.gain.gain.setTargetAtTime(
+        (0.004 + load * 0.058) * ex, now, load > 0 ? 0.06 : 0.18
+      );
       this.exhaust.filter.frequency.setTargetAtTime(180 + rpm * 0.06, now, 0.08);
+
+      // turbo whistle rides on top, and only under boost
+      if (this.turboGain) {
+        const boost = (voice.turbo ?? 0) * load * clamp(rpm / redline, 0, 1);
+        this.turboGain.gain.setTargetAtTime(boost * 0.035, now, 0.12);
+        this.turboOsc.frequency.setTargetAtTime(2600 + clamp(rpm / redline, 0, 1) * 3200, now, 0.1);
+      }
     }
 
     // wind and road noise
