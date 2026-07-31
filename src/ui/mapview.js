@@ -224,8 +224,26 @@ export class MapView {
     const v = this.game.vehicle;
     const wp = this.game.waypoint;
 
-    // route hint: a straight line from the car to the marker
-    if (wp) {
+    // the suggested route, drawn along the actual streets
+    const route = this.game.route;
+    if (route && route.points.length > 1) {
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      route.points.forEach((q, i) => {
+        const s = this._worldToScreen(q.x, q.z);
+        i === 0 ? ctx.moveTo(s.x, s.y) : ctx.lineTo(s.x, s.y);
+      });
+      ctx.strokeStyle = 'rgba(6,26,14,0.85)';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      ctx.strokeStyle = '#5ce08a';
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+      ctx.restore();
+    } else if (wp) {
+      // no road route found — fall back to the straight line
       const a = this._worldToScreen(v.position.x, v.position.z);
       const b = this._worldToScreen(wp.x, wp.z);
       ctx.save();
@@ -237,6 +255,9 @@ export class MapView {
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
       ctx.restore();
+    }
+    if (wp) {
+      const b = this._worldToScreen(wp.x, wp.z);
       drawFlag(ctx, b.x, b.y);
     }
 
@@ -260,7 +281,9 @@ export class MapView {
 
     if (this.info) {
       this.info.textContent = wp
-        ? `Hedef: ${Math.round(Math.hypot(wp.x - v.position.x, wp.z - v.position.z))} m — haritaya dokunarak taşı`
+        ? (route
+          ? `Hedef: ${(route.length / 1000).toFixed(1)} km yol · ${route.legs.length} manevra`
+          : `Hedef: ${Math.round(Math.hypot(wp.x - v.position.x, wp.z - v.position.z))} m — haritaya dokunarak taşı`)
         : 'Hedef koymak için haritaya dokun · sürükle = kaydır · çift parmak = yakınlaştır';
     }
   }

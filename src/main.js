@@ -13,8 +13,9 @@ import { buildRamps } from './world/ramps.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
+import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
 
-import { createPlayerCar } from './vehicles/carModel.js';
+import { createPlayerCar, sillHeight } from './vehicles/carModel.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { Traffic } from './vehicles/traffic.js';
 import { OnFoot } from './vehicles/onFoot.js';
@@ -205,7 +206,6 @@ class Game {
     this.audio?.setVehicle(spec);
     this.playerCar = createPlayerCar(spec, colour);
     this.scene.add(this.playerCar.group);
-    if (this.headlights) this.playerCar.group.add(this.headlights);
 
     this.vehicle = new Vehicle(spec, this.world);
     if (keepPlace && prev) {
@@ -216,36 +216,125 @@ class Game {
       this._placeOnRoad(SHOWCASE.x, SHOWCASE.z, SHOWCASE.yaw);
     }
     this.effects?.clearSkids();
+    // the lamps sit at this car's corners, so the rig is rebuilt with it
+    if (this.headlights) {
+      this.headlights.traverse((o) => {
+        if (!o.isMesh) return;
+        o.geometry?.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m) => m?.dispose());
+      });
+      const manual = this.headlightsManual;
+      const main = this.mainBeam;
+      this._setupHeadlights();
+      this.headlightsManual = manual;
+      this.mainBeam = main;
+    }
   }
 
+  /**
+   * Headlights.
+   *
+   * One spotlight aimed down the middle was the old rig, which lit the road
+   * as an even wash with no shape to it. A real pair throws two overlapping
+   * cones from where the lamps actually are, with a dipped beam that stops
+   * short and a main beam that reaches; the glow cones and the pool of light
+   * on the tarmac are what sell it in the dark, since the scene has no
+   * volumetric lighting to do it for free.
+   */
   _setupHeadlights() {
     const rig = new THREE.Group();
-    const beam = new THREE.SpotLight(0xfff0d0, 0, 90, 0.62, 0.45, 1.2);
-    beam.position.set(0, 1.0, 1.6);
-    beam.target.position.set(0, -0.4, 26);
-    rig.add(beam, beam.target);
+    const spec = this.vehicle?.spec ?? CARS[0];
+    const half = spec.width * 0.34;
+    const lampY = sillHeight(spec) + spec.bodyHeight * 0.55;
+    const lampZ = spec.length * 0.5 - 0.06;
 
-    // soft pool on the tarmac so the beam reads even where nothing is lit
-    const pool = new THREE.Mesh(
-      new THREE.PlaneGeometry(11, 26),
-      new THREE.MeshBasicMaterial({
-        color: 0xffe9bf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
-      })
-    );
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(0, 0.06, 12);
+    this.headBeams = [];
+    this.headCones = [];
+
+    for (const side of [-1, 1]) {
+      const beam = new THREE.SpotLight(0xfff2d8, 0, 120, 0.44, 0.55, 1.4);
+      beam.position.set(side * half, lampY, lampZ);
+      // aimed down and slightly outboard, like a dipped beam
+      beam.target.position.set(side * half * 3.4, -1.1, lampZ + 30);
+      rig.add(beam, beam.target);
+      this.headBeams.push(beam);
+
+      // the visible shaft of light, only worth drawing after dark
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(1, 1, 18, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xffeec8, transparent: true, opacity: 0, depthWrite: false,
+          // Additive *and* fogged renders the fog colour into the shape, which
+          // turns an invisible glow into a solid grey wedge after dark.
+          blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false
+        })
+      );
+      // apex at the lamp, opening away from the car — the other way round
+      // puts the wide end on the bonnet and the beam points backwards
+      cone.rotation.x = -Math.PI / 2;
+      cone.scale.set(2.2, 22, 2.2);
+      cone.position.set(side * half, lampY - 0.18, lampZ + 11);
+      cone.renderOrder = 3;
+      rig.add(cone);
+      this.headCones.push(cone);
+    }
+
+    // Pool on the tarmac. Shaped like a beam pattern — narrow at the car,
+    // spreading out and fading at the cut-off — instead of a plain rectangle.
+    const poolGeo = new THREE.PlaneGeometry(1, 1, 12, 18);
+    const pp = poolGeo.attributes.position;
+    const alpha = new Float32Array(pp.count);
+    for (let i = 0; i < pp.count; i++) {
+      const u = pp.getX(i) + 0.5;        // 0..1 across
+      const v = pp.getY(i) + 0.5;        // 0..1 along
+      const spread = 0.35 + v * 0.65;
+      pp.setX(i, (u - 0.5) * spread);
+      // bright just ahead of the bumper, fading out at the cut-off
+      const along = Math.sin(Math.min(1, v * 1.15) * Math.PI) ** 0.8;
+      const across = 1 - Math.pow(Math.abs((u - 0.5) * 2), 2.2);
+      alpha[i] = Math.max(0, along * across);
+    }
+    poolGeo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1));
+    poolGeo.rotateX(-Math.PI / 2);
+
+    const poolMat = new THREE.ShaderMaterial({
+      uniforms: { uOpacity: { value: 0 }, uColour: { value: new THREE.Color(0xffe9bf) } },
+      vertexShader: `
+        attribute float aAlpha;
+        varying float vA;
+        void main() {
+          vA = aAlpha;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform float uOpacity;
+        uniform vec3 uColour;
+        varying float vA;
+        void main() {
+          gl_FragColor = vec4(uColour, vA * uOpacity);
+        }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const pool = new THREE.Mesh(poolGeo, poolMat);
+    pool.scale.set(spec.width * 4.4, 1, 26);
+    pool.position.set(0, 0.05, 13);
+    pool.renderOrder = 2;
     rig.add(pool);
 
     this.headlights = rig;
-    this.headlightBeam = beam;
     this.headlightPool = pool;
     this.headlightsManual = null;
+    this.mainBeam = false;
     if (this.playerCar) this.playerCar.group.add(rig);
   }
 
   // -------------------------------------------------------------- waypoint
   setWaypoint(p) {
     this.waypoint = p ? { x: p.x, z: p.z } : null;
+    this._buildRoute();
     const el = document.getElementById('waypoint');
     el.classList.toggle('hidden', !this.waypoint);
     if (this.waypoint) {
@@ -366,6 +455,88 @@ class Game {
     }
     el.textContent = text;
     el.classList.toggle('hidden', !text);
+  }
+
+  /** Recomputes the suggested route from wherever the player is now. */
+  _buildRoute() {
+    if (!this.waypoint) {
+      this.route = null;
+      this._routeLeg = 0;
+      return;
+    }
+    const p = this.state === 'foot' ? this.onFoot.position : this.vehicle.position;
+    this.route = findRoute(this.network, p.x, p.z, this.waypoint.x, this.waypoint.z);
+    this._routeLeg = 0;
+    this._routeAge = 0;
+  }
+
+  /**
+   * The turn banner. Shows the distance to the next manoeuvre and what it is,
+   * and steps through the legs as they are passed.
+   */
+  _updateNav(dt) {
+    const el = document.getElementById('nav');
+    if (!el) return;
+    if (!this.route || !this.waypoint) {
+      el.classList.add('hidden');
+      return;
+    }
+    const p = this.state === 'foot' ? this.onFoot.position : this.vehicle.position;
+
+    // step past any leg we have already reached
+    while (this._routeLeg < this.route.legs.length - 1) {
+      const leg = this.route.legs[this._routeLeg];
+      if (Math.hypot(leg.x - p.x, leg.z - p.z) > 26) break;
+      this._routeLeg++;
+    }
+    const leg = this.route.legs[this._routeLeg];
+    const d = Math.hypot(leg.x - p.x, leg.z - p.z);
+
+    // if the player has wandered well off the line, plan again
+    this._routeAge = (this._routeAge ?? 0) + dt;
+    if (this._routeAge > 2.5) {
+      this._routeAge = 0;
+      let best = Infinity;
+      for (const q of this.route.points) {
+        best = Math.min(best, (q.x - p.x) ** 2 + (q.z - p.z) ** 2);
+      }
+      if (best > 90 * 90) this._buildRoute();
+    }
+
+    el.classList.remove('hidden');
+    document.getElementById('nav-arrow').textContent = TURN_ARROW[leg.turn] ?? '↑';
+    document.getElementById('nav-dist').textContent =
+      d > 950 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d / 10) * 10} m`;
+    document.getElementById('nav-step').textContent =
+      leg.name ? `${TURN_LABEL[leg.turn]} · ${leg.name}` : TURN_LABEL[leg.turn];
+  }
+
+  /**
+   * Back-face culling.
+   *
+   * Three.js already culls back faces by default, but a handful of surfaces
+   * are deliberately double-sided — the embankments, the ramp skirts, the
+   * headlight cones — because they are open shells you can end up behind.
+   * "Agresif" forces even those to a single side, which halves their
+   * fragment cost at the price of the odd surface vanishing from behind.
+   */
+  setCulling(level) {
+    if (this._cullLevel === level) return;
+    this._cullLevel = level;
+    const seen = new Set();
+    this.scene.traverse((o) => {
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m || seen.has(m)) continue;
+        seen.add(m);
+        if (m.userData.baseSide === undefined) m.userData.baseSide = m.side;
+        if (level === 0) m.side = THREE.DoubleSide;
+        else if (level >= 2) m.side = THREE.FrontSide;
+        else m.side = m.userData.baseSide;
+        m.needsUpdate = true;
+      }
+    });
   }
 
   toggleFullscreen() {
@@ -526,10 +697,14 @@ class Game {
       if (this.state === 'driving') this.hud.showToast(`Saat ${this.skyEnv.clockText}`, 1.6);
     }
     if (input.consume('lights')) {
-      this.headlightsManual = this.headlightsManual === null
-        ? this.skyEnv.lightsOn < 0.5
-        : !this.headlightsManual;
-      this.hud.showToast(this.headlightsManual ? 'Farlar açık' : 'Farlar kapalı', 1.4);
+      // off -> dipped -> main -> off
+      if (this.headlightsManual === null) this.headlightsManual = this.skyEnv.lightsOn < 0.5;
+      if (!this.headlightsManual) { this.headlightsManual = true; this.mainBeam = false; }
+      else if (!this.mainBeam) this.mainBeam = true;
+      else { this.headlightsManual = false; this.mainBeam = false; }
+      this.hud.showToast(
+        !this.headlightsManual ? 'Farlar kapalı' : (this.mainBeam ? 'Uzun far' : 'Kısa far'), 1.4
+      );
     }
     if (input.consume('mute')) {
       this.audio.setMuted(!this.audio.muted);
@@ -695,6 +870,7 @@ class Game {
     }
 
     this._updatePrompt();
+    if (driving || onFoot) this._updateNav(dt); else document.getElementById('nav')?.classList.add('hidden');
 
     // ---- ui ------------------------------------------------------------
     if (driving || onFoot || paused) {
@@ -803,12 +979,27 @@ class Game {
     this.traffic.setNight(night > 0.4);
 
     // player lights
-    const beamTarget = on ? 26 : 0;
-    this.headlightBeam.intensity = damp(this.headlightBeam.intensity, beamTarget, 6, dt);
-    this.headlightBeam.visible = this.headlightBeam.intensity > 0.05;
-    this.headlightPool.material.opacity = damp(
-      this.headlightPool.material.opacity, on ? 0.10 * night + 0.02 : 0, 6, dt
-    );
+    const main = on && this.mainBeam;
+    const target = on ? (main ? 30 : 17) : 0;
+    for (const beam of this.headBeams) {
+      beam.intensity = damp(beam.intensity, target, 7, dt);
+      beam.visible = beam.intensity > 0.05;
+      // main beam looks further ahead and flattens out
+      beam.angle = damp(beam.angle, main ? 0.36 : 0.46, 5, dt);
+      beam.distance = main ? 165 : 105;
+    }
+    const coneTarget = on ? (0.012 + night * 0.022) * (main ? 1.5 : 1) : 0;
+    for (const cone of this.headCones) {
+      cone.material.opacity = damp(cone.material.opacity, coneTarget, 6, dt);
+      cone.visible = cone.material.opacity > 0.004;
+      const reach = main ? 34 : 22;
+      cone.scale.y = damp(cone.scale.y, reach, 5, dt);
+      cone.position.z = (this.vehicle.spec.length * 0.5 - 0.06) + cone.scale.y * 0.5;
+    }
+    const pool = this.headlightPool.material.uniforms.uOpacity;
+    pool.value = damp(pool.value, on ? (0.16 * night + 0.05) * (main ? 1.35 : 1) : 0, 6, dt);
+    this.headlightPool.scale.z = damp(this.headlightPool.scale.z, main ? 40 : 26, 5, dt);
+    this.headlightPool.position.z = this.headlightPool.scale.z * 0.5;
     this.playerCar.headMat.color.setScalar(on ? 1 : 0.33);
 
     const braking = this.input.state.brake > 0.05 && this.vehicle.forwardSpeed > 0.4;

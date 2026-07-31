@@ -36,6 +36,23 @@ const DEFS = [
     note: 'Sahne bu oranda çizilip ekrana ölçeklenir. Düşürmek en çok kare hızı kazandıran ayardır.'
   },
   {
+    tab: 'video', key: 'farClip', label: 'Maks. görüş uzaklığı', live: true,
+    values: [
+      { v: 600, t: '600 m' }, { v: 1200, t: '1,2 km' }, { v: 2000, t: '2 km' },
+      { v: 3200, t: '3,2 km' }, { v: 6000, t: '6 km' }
+    ],
+    def: () => 6000,
+    note: 'Bu mesafeden ötesi hiç çizilmez. Düşürmek uzak şehir siluetini kırpar ama çok hızlandırır.'
+  },
+  {
+    tab: 'video', key: 'culling', label: 'Yüz ayıklama', live: true,
+    values: [
+      { v: 1, t: 'Açık' }, { v: 2, t: 'Agresif' }, { v: 0, t: 'Kapalı' }
+    ],
+    def: () => 1,
+    note: 'Arkaya bakan yüzeyler çizilmez. Agresif, çift yüzlü yüzeyleri de teke indirir.'
+  },
+  {
     tab: 'video', key: 'fog', label: 'Sis mesafesi', live: true,
     values: [{ v: 0.6, t: 'Yakın' }, { v: 1, t: 'Normal' }, { v: 1.5, t: 'Uzak' }, { v: 2.4, t: 'Kapalı gibi' }],
     def: () => 1
@@ -234,6 +251,12 @@ export class Settings {
 
     if (g.terrain) g.terrain.radius = v.viewDistance;
     if (g.skyEnv) g.skyEnv.fogScale = v.fog;
+
+    if (g.camera.far !== v.farClip) {
+      g.camera.far = v.farClip;
+      g.camera.updateProjectionMatrix();
+    }
+    g.setCulling?.(v.culling);
 
     if (g.audio) {
       g.audio.setLevels({
