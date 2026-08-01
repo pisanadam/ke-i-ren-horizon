@@ -33,6 +33,8 @@ export class Vehicle {
     this.onRoad = true;
     this.surfaceGrip = 1;
     this.impact = 0;
+    /** Set when something was actually destroyed, so the sound can differ. */
+    this.crash = 0;
     this.airborne = false;
     this.verticalVel = 0;
     this.groundY = 0;
@@ -246,7 +248,9 @@ export class Vehicle {
         this.velocity.z += hit.nz * impulse;
         this.velocity.multiplyScalar(0.86);
         this.yawRate *= 0.6;
-        this.impact = Math.max(this.impact, Math.min(1, -vn / 12));
+        // Spread over the speeds people actually drive at, so a kerb
+        // scrape and a wall at a hundred do not sound the same.
+        this.impact = Math.max(this.impact, Math.min(1, -vn / 20));
       }
     }
 

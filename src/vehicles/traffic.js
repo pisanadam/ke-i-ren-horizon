@@ -447,6 +447,7 @@ export class Traffic {
               // hitting off-centre is what makes it spin rather than slide
               const lever = ((ox - a.x) * aFwdX + (oz - a.z) * aFwdZ) / Math.max(1, other.length);
               const side = ((ox - a.x) * -aFwdZ + (oz - a.z) * aFwdX) / Math.max(1, other.width);
+              pv.crash = Math.max(pv.crash ?? 0, Math.min(1, vn / 16));
               this.fling(
                 a,
                 nx * push,

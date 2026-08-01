@@ -469,37 +469,120 @@ export class AudioEngine {
     this._horn.gain.setTargetAtTime(on ? 0.13 : 0, this.ctx.currentTime, 0.02);
   }
 
+  /**
+   * A hit.
+   *
+   * `strength` runs 0 to 1 and everything about the sound follows it, because
+   * a kerb scrape and a lamp post at ninety are not the same event with the
+   * volume turned up. As it rises the body thump drops in pitch and lengthens,
+   * the filter opens so the crumple gets its rasp, the metal ring comes in,
+   * and past halfway there is glass.
+   */
   thud(strength) {
     if (!this.started || strength <= 0.02) return;
+    const s = Math.min(1, strength);
     const ctx = this.ctx;
     const now = ctx.currentTime;
+
+    // ---- the body of the impact: filtered noise, longer the harder it is
+    const tail = 0.16 + s * 0.42;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     src.loop = false;
-    src.playbackRate.value = 0.5 + Math.random() * 0.3;
+    src.playbackRate.value = 0.34 + Math.random() * 0.3 + s * 0.35;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 260 + strength * 900;
+    filter.frequency.setValueAtTime(700 + s * 3200, now);
+    filter.frequency.exponentialRampToValueAtTime(180 + s * 260, now + tail);
+    filter.Q.value = 0.9 + s * 2.6;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(Math.min(0.5, strength * 0.55), now);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    g.gain.setValueAtTime(Math.min(0.62, 0.08 + s * 0.58), now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + tail);
     src.connect(filter);
     filter.connect(g);
     g.connect(this.master);
-    src.start(now, Math.random(), 0.35);
+    src.start(now, Math.random(), tail + 0.05);
 
-    // metallic ring on harder hits
-    if (strength > 0.35) {
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.setValueAtTime(320 + Math.random() * 260, now);
-      const og = ctx.createGain();
-      og.gain.setValueAtTime(strength * 0.10, now);
-      og.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-      o.connect(og);
-      og.connect(this.master);
-      o.start(now);
-      o.stop(now + 0.55);
+    // ---- the thump you feel: a short pitch drop, deeper on a heavy hit
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(120 - s * 46, now);
+    o.frequency.exponentialRampToValueAtTime(34 - s * 12, now + 0.13 + s * 0.14);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(Math.min(0.5, 0.1 + s * 0.42), now);
+    og.gain.exponentialRampToValueAtTime(0.0001, now + 0.2 + s * 0.2);
+    o.connect(og);
+    og.connect(this.master);
+    o.start(now);
+    o.stop(now + 0.45 + s * 0.3);
+
+    // ---- panel ring, only once there is enough in it to ring
+    if (s > 0.28) {
+      for (let i = 0; i < 2; i++) {
+        const m = ctx.createOscillator();
+        m.type = 'triangle';
+        m.frequency.setValueAtTime(280 + i * 190 + Math.random() * 220, now + i * 0.012);
+        const mg = ctx.createGain();
+        mg.gain.setValueAtTime((s - 0.28) * 0.2, now + i * 0.012);
+        mg.gain.exponentialRampToValueAtTime(0.0001, now + 0.35 + s * 0.5);
+        m.connect(mg);
+        mg.connect(this.master);
+        m.start(now + i * 0.012);
+        m.stop(now + 0.9 + s * 0.5);
+      }
+    }
+
+    // ---- glass, for the ones that really hurt
+    if (s > 0.52) {
+      const gs = ctx.createBufferSource();
+      gs.buffer = this.noiseBuffer;
+      gs.playbackRate.value = 2.4 + Math.random();
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 3200;
+      const gg = ctx.createGain();
+      gg.gain.setValueAtTime(0, now);
+      gg.gain.linearRampToValueAtTime((s - 0.52) * 0.34, now + 0.03);
+      gg.gain.exponentialRampToValueAtTime(0.0001, now + 0.5 + s * 0.4);
+      gs.connect(hp);
+      hp.connect(gg);
+      gg.connect(this.master);
+      gs.start(now + 0.02, Math.random(), 0.7);
+    }
+  }
+
+  /**
+   * Something came apart: the impact plus the wreckage hitting the road a
+   * moment later. `kind` picks what it sounds like — a steel column rings,
+   * a car crumples.
+   */
+  crash(strength, kind = 'direk') {
+    if (!this.started) return;
+    const s = Math.min(1, Math.max(0.25, strength));
+    this.thud(Math.min(1, s * 1.15));
+
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const metal = kind !== 'park';
+
+    // the pieces landing, a beat behind the hit
+    for (let i = 0; i < (metal ? 3 : 4); i++) {
+      const at = now + 0.18 + Math.random() * (0.5 + s * 0.5);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.playbackRate.value = metal ? 1.4 + Math.random() * 1.2 : 0.6 + Math.random() * 0.5;
+      const f = ctx.createBiquadFilter();
+      f.type = metal ? 'bandpass' : 'lowpass';
+      f.frequency.value = metal ? 900 + Math.random() * 2200 : 400 + Math.random() * 500;
+      f.Q.value = metal ? 4 : 1;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(s * (metal ? 0.16 : 0.2) * (1 - i * 0.18), at + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22 + Math.random() * 0.3);
+      src.connect(f);
+      f.connect(g);
+      g.connect(this.master);
+      src.start(at, Math.random(), 0.5);
     }
   }
 

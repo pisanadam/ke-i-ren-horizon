@@ -153,8 +153,12 @@ class Game {
     this.breakables = new Breakables(this.rigid);
     for (const b of props.breakables) this.breakables.add(b);
     this.breakables.onBreak = (item, blow) => {
-      this.audio?.thud(Math.min(1, (blow?.speed ?? 8) / 18));
-      this.rig?.addShake(Math.min(0.7, (blow?.speed ?? 8) / 30) * this.shakeScale);
+      const hard = Math.min(1, (blow?.speed ?? 8) / 28);
+      // one crash a frame however many things went down at once, or ploughing
+      // into a row of parked cars fires a dozen overlapping sounds
+      this._crash = Math.max(this._crash ?? 0, hard);
+      this._crashKind = item.kind;
+      this.rig?.addShake(Math.min(0.7, hard) * this.shakeScale);
     };
 
     await step(90, 'Trafik akıyor…');
@@ -924,8 +928,19 @@ class Game {
     // ---- vehicle -------------------------------------------------------
     if (driving) {
       const prevImpact = this.vehicle.impact;
+      this._crash = 0;
+      this._crashKind = null;
       this.vehicle.update(dt, input);
-      if (this.vehicle.impact > prevImpact + 0.05) {
+      // a car sent flying counts as a crash too, not a bump
+      if (this.vehicle.crash > 0) {
+        this._crash = Math.max(this._crash, this.vehicle.crash);
+        this._crashKind = this._crashKind || 'park';
+        this.vehicle.crash = 0;
+      }
+      if (this._crash > 0) {
+        this.audio.crash(this._crash, this._crashKind);
+        this.rig.addShake(Math.min(0.9, this._crash) * this.shakeScale);
+      } else if (this.vehicle.impact > prevImpact + 0.05) {
         this.audio.thud(this.vehicle.impact);
         this.rig.addShake(this.vehicle.impact * 0.9 * this.shakeScale);
       }

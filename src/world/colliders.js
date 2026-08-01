@@ -62,7 +62,6 @@ export class ColliderGrid {
         for (let n = 0; n < arr.length; n++) {
           const b = this.items[arr[n]];
           if (!b.solid) continue;
-          if (b.frail && onFrail && onFrail(b)) continue;
           // to box space
           const dx = px - b.cx;
           const dz = pz - b.cz;
@@ -91,6 +90,12 @@ export class ColliderGrid {
             depth = radius - d;
           }
           if (depth <= 0) continue;
+
+          // Only now, with a real overlap in hand, is this thing actually
+          // being hit. Asking sooner would break everything the broad phase
+          // returned — which is a whole cell of the city, not the lamp post
+          // in front of the bumper.
+          if (b.frail && onFrail && onFrail(b)) continue;
 
           // back to world space
           const nx = nlx * b.cos - nlz * b.sin;
