@@ -27,6 +27,19 @@ const DEFS = [
     def: () => 2
   },
   {
+    tab: 'video', key: 'reflections', label: 'Yansımalar', live: true,
+    values: [{ v: 0, t: 'Kapalı' }, { v: 1, t: 'Gökyüzü' }, { v: 2, t: 'Dinamik' }],
+    def: () => (QUALITY.tier === 'mobile' ? 1 : 2),
+    note: 'Boyanın ve camın neyi yansıttığı. Dinamik, çevredeki binaları da yansıtır; ' +
+      'gökyüzü çok daha ucuzdur.'
+  },
+  {
+    tab: 'video', key: 'envLight', label: 'Gökyüzü aydınlatması', live: true,
+    values: [{ v: 0.06, t: 'Zayıf' }, { v: 0.10, t: 'Normal' }, { v: 0.16, t: 'Güçlü' }],
+    def: () => 0.10,
+    note: 'Gökyüzünün sahneyi ne kadar aydınlattığı ve boyanın onu ne kadar yansıttığı.'
+  },
+  {
     tab: 'video', key: 'resScale', label: 'Çözünürlük ölçeği', live: true,
     values: [
       { v: 0.6, t: '%60' }, { v: 0.75, t: '%75' }, { v: 0.9, t: '%90' },
@@ -251,6 +264,11 @@ export class Settings {
 
     if (g.terrain) g.terrain.radius = v.viewDistance;
     if (g.skyEnv) g.skyEnv.fogScale = v.fog;
+
+    if (g.reflections) {
+      g.reflections.setMode(['kapalı', 'gökyüzü', 'dinamik'][v.reflections] ?? 'gökyüzü');
+      g.reflections.setIntensity(v.envLight);
+    }
 
     if (g.camera.far !== v.farClip) {
       g.camera.far = v.farClip;

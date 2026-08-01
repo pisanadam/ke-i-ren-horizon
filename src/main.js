@@ -12,6 +12,7 @@ import { Metro } from './world/metro.js';
 import { buildRamps } from './world/ramps.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
+import { Reflections, markReflective } from './world/reflections.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
 
@@ -66,6 +67,9 @@ class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
+    // PCFSoftShadowMap is deprecated in this version of three and silently
+    // falls back to PCF anyway, so ask for PCF and get the softening from a
+    // stable, texel-snapped shadow camera instead (see world/skyEnv.js).
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
@@ -103,11 +107,13 @@ class Game {
     await step(20, 'Ankara ovası ve tepeleri şekilleniyor…');
     this.ground = new Ground(this.network);
     this.colliders = new ColliderGrid();
-    this.scene.add(this.ground.buildBackdrop());
+    this.backdrop = this.ground.buildBackdrop();
+    this.scene.add(this.backdrop);
     this.terrain = new TerrainChunks(this.ground, this.scene);
 
     await step(34, 'Asfalt döşeniyor…');
-    this.scene.add(buildRoads(this.network));
+    this.roadGroup = buildRoads(this.network);
+    this.scene.add(this.roadGroup);
 
     this.world = {
       network: this.network,
@@ -145,6 +151,22 @@ class Game {
     this.effects = new Effects(this.scene);
     this.traffic = new Traffic(this.world, this.scene);
     this.scene.add(this.traffic.group);
+
+    // ---- what a car sees when it looks around itself ---------------------
+    // Only the big, still things go into the reflection probe. Trees, street
+    // furniture, traffic and the player's own car are left out: six extra
+    // renders of the whole city would cost more than the reflection is worth,
+    // and a car that reflects itself looks wrong anyway.
+    this.reflections = new Reflections(this.renderer, this.scene);
+    markReflective(this.skyEnv.sky, true);
+    markReflective(this.skyEnv.stars, true);
+    markReflective(this.skyEnv.moon, true);
+    markReflective(this.backdrop);
+    markReflective(this.roadGroup);
+    markReflective(this.terrain.group);
+    markReflective(buildings.group);
+    markReflective(landmarks.group);
+    this.terrain.onChunk = (mesh) => markReflective(mesh);
 
     await step(96, 'Araçlar hazırlanıyor…');
     this.audio = new AudioEngine();
@@ -887,6 +909,9 @@ class Game {
       this.effects.update(dt);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
+      this.reflections.update(
+        dt, onFoot ? this.onFoot.position : this.vehicle.position, this.skyEnv.hour
+      );
       this._updateNight(dt);
       this._updateSignalLenses(dt);
       this._updateFlags();

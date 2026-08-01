@@ -47,6 +47,8 @@ export class TerrainChunks {
     const mesh = this.ground.buildPatch(ix * this.size, iz * this.size, this.size, this.step);
     mesh.visible = false;
     mesh.name = `chunk-${ix}-${iz}`;
+    // chunks appear long after the world is marked up, so they opt in here
+    this.onChunk?.(mesh);
     this.group.add(mesh);
     this.chunks.set(k, mesh);
     this.built++;

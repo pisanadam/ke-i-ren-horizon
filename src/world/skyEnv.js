@@ -29,12 +29,24 @@ export class SkyEnv {
     this.sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = QUALITY.shadowFar;
-    this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.9;
+    this.sun.shadow.bias = -0.00035;
+    // A large normal bias hides acne but peels the shadow away from whatever
+    // casts it. With the map snapped to its own texel grid (see `update`) the
+    // acne is stable, so the bias can come down and cars keep their contact
+    // shadow instead of hovering.
+    this.sun.shadow.normalBias = 0.16;
     const cam = this.sun.shadow.camera;
     const ext = QUALITY.shadowExtent;
+    this.shadowExtent = ext;
     cam.left = -ext; cam.right = ext; cam.top = ext; cam.bottom = -ext;
     cam.updateProjectionMatrix();
+
+    this._lightAxes = {
+      dir: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+      up: new THREE.Vector3(),
+      snap: new THREE.Vector3()
+    };
     scene.add(this.sun);
     scene.add(this.sun.target);
 
@@ -140,13 +152,36 @@ export class SkyEnv {
     this.nightFactor = 1 - day;
 
     // ---- sun ------------------------------------------------------------
+    // The shadow map follows the car, and if it slid smoothly every edge in
+    // the world would crawl and sparkle as the texel grid drifted under it.
+    // Quantising the centre to whole shadow texels — measured along the
+    // light's own axes — pins the grid in place, so shadows stay still.
+    const a = this._lightAxes;
+    a.dir.copy(this.sunPos).normalize();
+    a.up.set(0, 1, 0);
+    if (Math.abs(a.dir.y) > 0.98) a.up.set(0, 0, 1);
+    a.right.crossVectors(a.up, a.dir).normalize();
+    a.up.crossVectors(a.dir, a.right).normalize();
+
+    const texel = (this.shadowExtent * 2) / this.sun.shadow.mapSize.x;
+    const fx = focus.x;
+    const fy = focus.y;
+    const fz = focus.z;
+    const along = fx * a.dir.x + fy * a.dir.y + fz * a.dir.z;
+    const across = Math.round((fx * a.right.x + fy * a.right.y + fz * a.right.z) / texel) * texel;
+    const upward = Math.round((fx * a.up.x + fy * a.up.y + fz * a.up.z) / texel) * texel;
+    a.snap
+      .copy(a.dir).multiplyScalar(along)
+      .addScaledVector(a.right, across)
+      .addScaledVector(a.up, upward);
+
     const sunDist = 340;
     this.sun.position.set(
-      focus.x + this.sunPos.x * sunDist,
-      focus.y + Math.max(30, this.sunPos.y * sunDist),
-      focus.z + this.sunPos.z * sunDist
+      a.snap.x + this.sunPos.x * sunDist,
+      a.snap.y + Math.max(30, this.sunPos.y * sunDist),
+      a.snap.z + this.sunPos.z * sunDist
     );
-    this.sun.target.position.copy(focus);
+    this.sun.target.position.copy(a.snap);
     this.sun.target.updateMatrixWorld();
     this.sun.intensity = lerp(0.06, 3.3, day);
     this.sun.color.setRGB(
@@ -157,10 +192,14 @@ export class SkyEnv {
     this.sun.castShadow = day > 0.08;
 
     // ---- ambience --------------------------------------------------------
-    this.hemi.intensity = lerp(0.22, 1.05, day);
+    // The hemisphere and ambient lights are a stand-in for skylight. Once a
+    // real environment map is doing that job properly they have to give way,
+    // or the scene is lit twice and washes out.
+    const ibl = this.scene.environment ? clamp(this.scene.environmentIntensity ?? 0, 0, 1) : 0;
+    this.hemi.intensity = lerp(0.22, 1.05, day) * (1 - 0.80 * ibl);
     this.hemi.color.setHSL(0.58, 0.45, lerp(0.22, 0.72, day));
     this.hemi.groundColor.setHSL(0.11, 0.28, lerp(0.08, 0.36, day));
-    this.ambient.intensity = lerp(0.10, 0.20, day);
+    this.ambient.intensity = lerp(0.10, 0.20, day) * (1 - 0.95 * ibl);
 
     // ---- sky / fog -------------------------------------------------------
     this.sky.material.uniforms.turbidity.value = lerp(2.4, 5.2, day);

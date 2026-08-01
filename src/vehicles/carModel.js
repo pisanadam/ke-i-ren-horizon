@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { lerp, clamp, smoothstep } from '../util/math.js';
+import { QUALITY as TIER } from '../quality.js';
+
+/** Clear-coated paint on the player's car, where the device can carry it. */
+const RICH_PAINT = TIER.tier !== 'mobile';
 
 /**
  * Procedural car bodies.
@@ -22,8 +26,8 @@ import { lerp, clamp, smoothstep } from '../util/math.js';
 
 /** Detail levels: the player's car gets the dense mesh, traffic a lighter one. */
 const QUALITY = {
-  high: { rings: 46, pts: 28, cabRings: 22, cabPts: 24, wheelSeg: 26, blockSeg: 6 },
-  low: { rings: 16, pts: 12, cabRings: 8, cabPts: 10, wheelSeg: 9, blockSeg: 2 }
+  high: { rings: 58, pts: 36, cabRings: 28, cabPts: 30, wheelSeg: 32, blockSeg: 6, trim: true },
+  low: { rings: 16, pts: 12, cabRings: 8, cabPts: 10, wheelSeg: 9, blockSeg: 2, trim: false }
 };
 
 /**
@@ -194,6 +198,47 @@ function box(w, h, d, x, y, z, colour) {
 }
 
 /**
+ * Mirrors a geometry across the car's centre line.
+ *
+ * The wheels are dished — the rim face sits outboard — so the same geometry
+ * used on both sides shows one wheel from the back. Negating X alone reverses
+ * every triangle's winding, so the index order and the normals have to be
+ * flipped with it.
+ */
+function mirrorX(geo) {
+  const out = geo.clone();
+  const p = out.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setX(i, -p.getX(i));
+  const n = out.attributes.normal;
+  if (n) for (let i = 0; i < n.count; i++) n.setX(i, -n.getX(i));
+  const idx = out.index;
+  if (idx) {
+    const a = idx.array;
+    for (let i = 0; i < a.length; i += 3) {
+      const t = a[i + 1];
+      a[i + 1] = a[i + 2];
+      a[i + 2] = t;
+    }
+    idx.needsUpdate = true;
+  }
+  p.needsUpdate = true;
+  if (n) n.needsUpdate = true;
+  return out;
+}
+
+/**
+ * A slice of tube bent around the X axis — wheel arch lips, roll hoops.
+ * The arc is centred on straight up.
+ */
+function archTube(radius, tube, arc, x, y, z, colour, seg = 16) {
+  const g = new THREE.TorusGeometry(radius, tube, 5, seg, arc);
+  g.rotateZ(Math.PI / 2 - arc / 2);   // centre the opening on +Y
+  g.rotateY(Math.PI / 2);             // lay it in the plane of the wheel
+  g.translate(x, y, z);
+  return tint(g, colour);
+}
+
+/**
  * Tyre with rounded shoulders, a dished rim and spokes.
  * `rim` comes from the tuning options: spoke count, face style and colour.
  */
@@ -237,6 +282,27 @@ function wheelGeometry(radius, width, seg, rim) {
   hub.rotateZ(Math.PI / 2);
   parts.push(tint(hub, 0x70767e));
 
+  // Brake disc, seen through the spokes. Nothing sells a wheel like the
+  // hardware behind it; a bare rim with daylight through it reads as a toy.
+  if (seg >= 16) {
+    const disc = new THREE.CylinderGeometry(radius * 0.56, radius * 0.56, width * 0.09, Math.max(10, Math.round(seg * 0.6)));
+    disc.rotateZ(Math.PI / 2);
+    disc.translate(-width * 0.08, 0, 0);
+    parts.push(tint(disc, 0x4a4d52));
+    const bell = new THREE.CylinderGeometry(radius * 0.24, radius * 0.24, width * 0.34, 10);
+    bell.rotateZ(Math.PI / 2);
+    bell.translate(-width * 0.02, 0, 0);
+    parts.push(tint(bell, 0x36393e));
+    // five lug nuts on the face
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.3;
+      const nut = new THREE.CylinderGeometry(radius * 0.035, radius * 0.035, width * 0.08, 6);
+      nut.rotateZ(Math.PI / 2);
+      nut.translate(faceX * 0.62, Math.cos(a) * radius * 0.15, Math.sin(a) * radius * 0.15);
+      parts.push(tint(nut, 0x8b9098));
+    }
+  }
+
   // spokes: thinner and more of them on the busier patterns
   const spokes = seg >= 20 ? (rim?.spokes ?? 5) : Math.min(6, rim?.spokes ?? 4);
   const thick = clamp(0.34 / Math.sqrt(spokes / 5), 0.09, 0.34);
@@ -253,6 +319,23 @@ function wheelGeometry(radius, width, seg, rim) {
   lip.translate(faceX * 0.55, 0, 0);
   parts.push(tint(lip, face));
 
+  const merged = mergeGeometries(parts, false);
+  parts.forEach((p) => p.dispose());
+  return merged;
+}
+
+/**
+ * The caliper. It hangs off the upright, so it belongs to the hub rather than
+ * to the wheel — bolted to the rim it would spin with it, which looks wrong
+ * the moment the car rolls to a stop.
+ */
+function caliperGeometry(radius, width, colour = 0xb03028) {
+  const parts = [];
+  const body = roundedBlock(width * 0.34, radius * 0.42, radius * 0.30,
+    -width * 0.06, radius * 0.55, -radius * 0.14, colour, 3);
+  parts.push(body);
+  parts.push(box(width * 0.1, radius * 0.34, radius * 0.06,
+    -width * 0.06, radius * 0.55, radius * 0.02, 0x2a2c30));
   const merged = mergeGeometries(parts, false);
   parts.forEach((p) => p.dispose());
   return merged;
@@ -414,6 +497,7 @@ export function buildCarParts(spec, quality = 'high') {
 
   const paint = [];
   const detail = [];
+  const chrome = [];
   const glass = [];
   const signGeos = [];
   const headGeos = [];
@@ -493,6 +577,140 @@ export function buildCarParts(spec, quality = 'high') {
 
   // floor pan so the arches do not look hollow from below
   detail.push(box(W * 0.86, 0.06, spec.wheelBase + wheelR * 0.5, 0, sillY - 0.01, 0, 0x24272b));
+
+  // ------------------------------------------------------ panel gaps & trim
+  /**
+   * A point on the body shell, addressed the way the loft builds it: `u`
+   * runs once around the cross-section (0 = left flank, 0.25 = belt line,
+   * 0.5 = right flank, 0.75 = sill) and `swell` lifts it off the surface.
+   *
+   * Having this as a continuous function — rather than the discrete ring
+   * points — is what lets a shut line be two centimetres wide instead of
+   * one whole loft quad.
+   */
+  const surfacePoint = (z, u, swell = 1) => {
+    const w = halfWidthAt(z);
+    const yb = sillAt(z);
+    const yt = beltAt(z);
+    const mid = (yb + yt) / 2;
+    const half = (yt - yb) / 2;
+    const th = u * Math.PI * 2;
+    const c = Math.cos(th);
+    const s = Math.sin(th);
+    const e = 2 / (s >= 0 ? 3.5 : 5.0);
+    return [
+      w * Math.sign(c) * Math.pow(Math.abs(c), e) * swell,
+      mid + half * Math.sign(s) * Math.pow(Math.abs(s), e) * swell,
+      z
+    ];
+  };
+
+  /** Quad strip between two parallel polylines. */
+  const stripGeo = (a, b) => {
+    const n = a.length;
+    if (n < 2) return null;
+    const pos = new Float32Array(n * 2 * 3);
+    for (let i = 0; i < n; i++) {
+      pos.set(a[i], i * 6);
+      pos.set(b[i], i * 6 + 3);
+    }
+    const idx = [];
+    for (let i = 0; i < n - 1; i++) {
+      const p = i * 2;
+      idx.push(p, p + 1, p + 3, p, p + 3, p + 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+
+  const GAP = 0.026;                 // how wide a shut line reads at this scale
+  const LIFT = 1.006;                // just proud of the paint, so it never z-fights
+  const gapU = GAP / (Math.PI * W);  // the same width expressed as a slice of the ring
+
+  /** Shut line running around the body at `z`, from `u0` to `u1`. */
+  const ringSeam = (z, u0, u1, steps = 14) => {
+    if (z <= tailZ + 0.05 || z >= noseZ - 0.05) return;
+    const a = [];
+    const b = [];
+    for (let i = 0; i <= steps; i++) {
+      const u = lerp(u0, u1, i / steps);
+      a.push(surfacePoint(z - GAP / 2, u, LIFT));
+      b.push(surfacePoint(z + GAP / 2, u, LIFT));
+    }
+    const g = stripGeo(a, b);
+    if (g) detail.push(tint(g, 0x0d0f12));
+  };
+
+  /** Shut line running fore and aft at ring position `u`. */
+  const lengthSeam = (zA, zB, u, steps = 16) => {
+    const a = [];
+    const b = [];
+    for (let i = 0; i <= steps; i++) {
+      const z = lerp(zA, zB, i / steps);
+      a.push(surfacePoint(z, u - gapU / 2, LIFT));
+      b.push(surfacePoint(z, u + gapU / 2, LIFT));
+    }
+    const g = stripGeo(a, b);
+    if (g) detail.push(tint(g, 0x0d0f12));
+  };
+
+  if (Q.trim) {
+    const doors = spec.tall || cabLen > L * 0.42 ? 2 : 1;   // two rows of doors, or one
+    const front = cabFront - cabLen * 0.06;
+    const back = cabBack + cabLen * 0.05;
+    const seams = doors === 2 ? [front, cabMid, back] : [front, back];
+    // flanks only: a shut line across the roof or under the floor is nonsense
+    for (const z of seams) {
+      ringSeam(z, -0.20, 0.20);       // left
+      ringSeam(z, 0.30, 0.70);        // right
+    }
+    // bonnet and boot lids: across the panel, then down both sides of it
+    const bonnetZ = Math.min(noseZ - 0.22, cabFront + 0.02);
+    const bootZ = Math.max(tailZ + 0.20, cabBack - 0.02);
+    ringSeam(bonnetZ, 0.18, 0.32);
+    lengthSeam(bonnetZ, noseZ - 0.10, 0.185);
+    lengthSeam(bonnetZ, noseZ - 0.10, 0.315);
+    if (!spec.bed) {
+      ringSeam(bootZ, 0.18, 0.32);
+      lengthSeam(tailZ + 0.10, bootZ, 0.185);
+      lengthSeam(tailZ + 0.10, bootZ, 0.315);
+    }
+    // Fuel filler: the outline of the flap, traced on the surface itself. A
+    // flat disc laid against the flank cuts through it — the panel is curved
+    // in both directions and the disc is not.
+    const cz = cabBack - 0.18;
+    const cu = 0.0;
+    const steps = 20;
+    const outer = [];
+    const inner = [];
+    for (let i = 0; i <= steps; i++) {
+      const th = (i / steps) * Math.PI * 2;
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      outer.push(surfacePoint(cz + c * 0.085, cu + s * 0.030, LIFT));
+      inner.push(surfacePoint(cz + c * 0.070, cu + s * 0.025, LIFT));
+    }
+    const flap = stripGeo(outer, inner);
+    if (flap) detail.push(tint(flap, 0x2b2f35));
+  }
+
+  // ------------------------------------------------------- wheel arch trim
+  // A lip of dark plastic around each arch. It reads as the gap between the
+  // bodywork and the tyre, which is what stops the wheels looking painted on.
+  if (Q.trim) {
+    for (const az of [axleF, axleR]) {
+      // Inboard of the flank and thin: a fat bead sitting proud of the panel
+      // reads as a second tyre hanging off the side of the car.
+      const lipX = halfWidthAt(az) - 0.05;
+      for (const sx of [-1, 1]) {
+        detail.push(archTube(archR - 0.035, 0.013, 2.3, sx * lipX,
+          archApex - archR, az, 0x24272c, 18));
+      }
+    }
+  }
 
   // ------------------------------------------------------------ glasshouse
   if (spec.tall) {
@@ -601,6 +819,29 @@ export function buildCarParts(spec, quality = 'high') {
       skirt.computeVertexNormals();
       detail.push(tint(skirt, 0x2a2e33));
     }
+
+    // Window surround. Cut the same way, but held to a four-centimetre band
+    // above the skirt so it shows as a line of trim rather than a panel.
+    if (Q.trim) {
+      const band = subPatch(cabRings, 0, Q.cabRings, 0, N - 1, 1.018);
+      if (band) {
+        const pos = band.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          pos.setY(i, clamp(pos.getY(i), beltY + 0.036, beltY + 0.072));
+        }
+        band.computeVertexNormals();
+        // sports cars wear black trim, everything else brightwork
+        chrome.push(tint(band, spec.spoiler ? 0x24272c : 0xc4c9d1));
+      }
+
+      // steering wheel, visible through the screen and from the cockpit camera
+      const wheelRim = new THREE.TorusGeometry(W * 0.10, 0.017, 5, 16);
+      wheelRim.rotateX(-1.15);
+      wheelRim.translate(-W * 0.19, beltY + cabH * 0.30, inFront - 0.06);
+      detail.push(tint(wheelRim, 0x1a1c20));
+      detail.push(box(W * 0.055, 0.016, 0.05, -W * 0.19,
+        beltY + cabH * 0.30, inFront - 0.06, 0x26292e));
+    }
   }
 
   // ---------------------------------------------------------------- extras
@@ -676,35 +917,117 @@ export function buildCarParts(spec, quality = 'high') {
   detail.push(bumperLoft(noseZ - 0.12, noseZ + 0.08, bumpLo, bumpHi));
   detail.push(bumperLoft(tailZ + 0.12, tailZ - 0.08, bumpLo, bumpHi));
 
+  // ---- grille ------------------------------------------------------------
+  const sporty = !!spec.spoiler;
+  const electric = !!spec.voice?.electric;
   const grilleY = sillY + spec.bodyHeight * 0.62;
-  detail.push(roundedBlock(W * 0.5, spec.bodyHeight * 0.24, 0.1, 0, grilleY, noseZ - 0.03, 0x16181c, 3));
-  detail.push(box(W * 0.25, 0.11, 0.03, 0, bumpLo + 0.16, noseZ + 0.04, 0xc9ced6));
-  detail.push(box(W * 0.25, 0.11, 0.03, 0, bumpLo + 0.16, tailZ - 0.04, 0xc9ced6));
+  const grilleH = spec.bodyHeight * (electric ? 0.16 : 0.24);
+  detail.push(roundedBlock(W * 0.5, grilleH, 0.1, 0, grilleY, noseZ - 0.03, 0x16181c, 3));
+  if (Q.trim && !electric) {
+    // slats across the opening, and a surround around it
+    const bars = sporty ? 5 : 4;
+    for (let i = 0; i < bars; i++) {
+      const y = grilleY - grilleH * 0.34 + (grilleH * 0.68 * i) / (bars - 1);
+      const g = box(W * 0.47, grilleH * 0.09, 0.035, 0, y, noseZ + 0.005,
+        sporty ? 0x2b2e33 : 0xb5bac2);
+      (sporty ? detail : chrome).push(g);
+    }
+    chrome.push(roundedBlock(W * 0.53, grilleH * 1.16, 0.05, 0, grilleY, noseZ - 0.045,
+      sporty ? 0x2b2e33 : 0xbfc4cc, 3));
+  }
+  // lower air intake under the bumper
+  if (Q.trim) {
+    detail.push(roundedBlock(W * 0.56, spec.bodyHeight * 0.16, 0.07, 0,
+      bumpLo + spec.bodyHeight * 0.08, noseZ + 0.015, 0x14161a, 3));
+  }
 
+  // number plates: painted steel, not brightwork — a mirrored plate goes black
+  detail.push(box(W * 0.25, 0.11, 0.03, 0, bumpLo + 0.16, noseZ + 0.04, 0xdfe3e9));
+  detail.push(box(W * 0.25, 0.11, 0.03, 0, bumpLo + 0.16, tailZ - 0.04, 0xdfe3e9));
+
+  // ---- mirrors, handles, sills -------------------------------------------
   for (const sx of [-1, 1]) {
     detail.push(box(0.07, 0.045, 0.11, sx * W * 0.49, beltY + 0.07, cabFront - 0.1, 0x2a2d32));
     detail.push(roundedBlock(0.16, 0.11, 0.07, sx * W * 0.56, beltY + 0.08, cabFront - 0.1, 0x2a2d32, 3));
-    detail.push(roundedBlock(0.04, 0.05, 0.17, sx * (W / 2 - 0.01), beltY - 0.17,
-      cabMid - cabLen * 0.1, 0x33373d, 3));
-    detail.push(roundedBlock(0.04, 0.05, 0.17, sx * (W / 2 - 0.01), beltY - 0.17,
-      cabMid + cabLen * 0.2, 0x33373d, 3));
+    // the glass in the mirror: a real reflective face, not a black blob
+    chrome.push(box(0.115, 0.075, 0.012, sx * W * 0.56, beltY + 0.085, cabFront - 0.142, 0xdde3ea));
+    // side repeater
+    if (Q.trim) {
+      signGeos.push(box(0.035, 0.03, 0.10, sx * (W / 2 + 0.005), beltY - 0.04,
+        cabFront + 0.06, 0xff9a1f));
+    }
+    chrome.push(roundedBlock(0.04, 0.05, 0.17, sx * (W / 2 - 0.01), beltY - 0.17,
+      cabMid - cabLen * 0.1, 0xb9bec6, 3));
+    chrome.push(roundedBlock(0.04, 0.05, 0.17, sx * (W / 2 - 0.01), beltY - 0.17,
+      cabMid + cabLen * 0.2, 0xb9bec6, 3));
   }
 
-  detail.push(roundedBlock(0.1, 0.1, 0.16, W * 0.26, sillY - 0.05, tailZ - 0.06, 0x7d838b, 3));
+  // ---- exhaust -----------------------------------------------------------
+  // Tucked under the valance, not bolted to the back panel: the tip should be
+  // something you notice from behind, not a barrel hanging off the bumper.
+  if (!electric) {
+    const tipY = bumpLo - 0.055;
+    for (const sx of (sporty ? [-1, 1] : [1])) {
+      chrome.push(tint(
+        new THREE.CylinderGeometry(0.036, 0.042, 0.13, 10)
+          .rotateX(Math.PI / 2)
+          .translate(sx * W * 0.26, tipY, tailZ + 0.015),
+        0xa8aeb6
+      ));
+      // the pipe is hollow: a dark bore stops it reading as a peg
+      detail.push(tint(
+        new THREE.CylinderGeometry(0.026, 0.026, 0.04, 10)
+          .rotateX(Math.PI / 2)
+          .translate(sx * W * 0.26, tipY, tailZ - 0.028),
+        0x141619
+      ));
+    }
+  }
 
-  // lamps, sunk slightly into the bodywork
+  // ---- lamps -------------------------------------------------------------
+  // Each lamp is a dark recess with the lens set into it, so it catches a
+  // shadow line instead of sitting on the paint like a sticker.
   const hy = sillY + spec.bodyHeight * 0.58;
   for (const sx of [-1, 1]) {
-    headGeos.push(roundedBlock(W * 0.26, 0.15, 0.1, sx * W * 0.30, hy, noseZ - 0.03, 0xfff3d6, Q.blockSeg));
-    signGeos.push(roundedBlock(W * 0.09, 0.1, 0.08, sx * W * 0.44, hy - 0.03, noseZ - 0.04, 0xff9a1f, 3));
+    // No separate housing behind the lens. The nose narrows so sharply that
+    // anything sunk in behind the lamp either pokes out through the wing or
+    // fights the lens for the same surface; the recess has to come from the
+    // lens sitting proud of a darker line, not from a box behind it.
+    // Narrow enough to stay inside the wing. Wider than the body is at this
+    // point and the paint cuts straight through the lens, leaving a torn edge
+    // where the two surfaces cross.
+    // Far enough forward that the lens face clears the nose cap: sunk level
+    // with it, a curved nose swallows all but a sliver of the lamp.
+    headGeos.push(roundedBlock(W * 0.23, 0.14, 0.10, sx * W * 0.27, hy + 0.012, noseZ + 0.005, 0xfff3d6, Q.blockSeg));
+    if (Q.trim) {
+      // daytime running light, on whenever the car is
+      signGeos.push(roundedBlock(W * 0.20, 0.034, 0.06, sx * W * 0.27, hy - 0.075, noseZ + 0.005, 0xe8f2ff, 3));
+    }
+    // Indicator down in the bumper corner rather than beside the lamp: up at
+    // lamp height there is no room left between the lens and the wing.
+    signGeos.push(roundedBlock(W * 0.075, 0.085, 0.07, sx * W * 0.34, bumpLo + 0.13, noseZ - 0.01, 0xff9a1f, 3));
   }
+
   const ty = sillY + spec.bodyHeight * 0.6;
   for (const sx of [-1, 1]) {
-    tailGeos.push(roundedBlock(W * 0.24, 0.17, 0.1, sx * W * 0.31, ty, tailZ + 0.03, 0xd8241f, Q.blockSeg));
+    tailGeos.push(roundedBlock(W * 0.23, 0.17, 0.10, sx * W * 0.29, ty, tailZ - 0.005, 0xd8241f, Q.blockSeg));
+  }
+  // a light bar joining them, which is how anything modern signs its own name
+  if (Q.trim && (electric || sporty)) {
+    tailGeos.push(box(W * 0.42, 0.045, 0.04, 0, ty, tailZ + 0.025, 0xd8241f));
+  }
+  // reversing lamps and a high-level brake light
+  if (Q.trim) {
+    for (const sx of [-1, 1]) {
+      signGeos.push(box(W * 0.07, 0.05, 0.03, sx * W * 0.20, ty - 0.075, tailZ + 0.02, 0xf2f6ff));
+    }
+    tailGeos.push(box(W * 0.30, 0.035, 0.03, 0, beltY + (spec.tall ? 0.02 : -0.02), tailZ + 0.05, 0xd8241f));
   }
 
   // ------------------------------------------------------------- wheels
   const wheel = wheelGeometry(wheelR, wheelW, Q.wheelSeg, spec.rim);
+  const wheelL = Q.trim ? mirrorX(wheel) : null;
+  const caliper = Q.trim ? caliperGeometry(wheelR, wheelW, sporty ? 0xc22a24 : 0x6b7078) : null;
   const wheels = [
     { x: -track, y: wheelR, z: axleF, front: true },
     { x: track, y: wheelR, z: axleF, front: true },
@@ -728,6 +1051,9 @@ export function buildCarParts(spec, quality = 'high') {
   return {
     paint: merge(paint),
     detail: merge(detail),
+    // brightwork gets its own mesh: chrome only looks like chrome when it is
+    // nearly a mirror, and that is a different material from matte trim
+    chrome: merge(chrome),
     glass: merge(glass),
     // everything that glows, merged for the instanced traffic cars
     glow: merge([...copies(signGeos), ...copies(headGeos), ...copies(tailGeos)]),
@@ -736,6 +1062,8 @@ export function buildCarParts(spec, quality = 'high') {
     headLight: merge(headGeos),
     tailLight: merge(tailGeos),
     wheel,
+    wheelL,
+    caliper,
     wheels,
     spec,
     dims: { sillY, beltY, roofY }
@@ -761,27 +1089,65 @@ function assemble(spec, Q, p) {
   const copies = (arr) => arr.map((g) => g.clone());
   const wheelR = spec.wheelRadius;
 
+  const wheel = wheelGeometry(wheelR, spec.wheelWidth ?? 0.1, Q.wheelSeg, spec.rim);
   return {
     paint: merge(p.paint),
     detail: merge(p.detail),
+    chrome: merge(p.chrome ?? []),
     glass: merge(p.glass),
     glow: merge([...copies(p.signGeos), ...copies(p.headGeos), ...copies(p.tailGeos)]),
     signGlow: merge(p.signGeos),
     headLight: merge(p.headGeos),
     tailLight: merge(p.tailGeos),
-    wheel: wheelGeometry(wheelR, spec.wheelWidth ?? 0.1, Q.wheelSeg, spec.rim),
+    wheel,
+    wheelL: Q.trim ? mirrorX(wheel) : null,
+    caliper: null,                 // a pram does not have brakes worth modelling
     wheels: p.wheels,
     spec,
     dims: { sillY: wheelR, beltY: wheelR + 0.4, roofY: wheelR + 0.9 }
   };
 }
 
+/**
+ * Materials.
+ *
+ * Car paint is not one layer but two: coloured basecoat under a clear
+ * lacquer. `MeshPhysicalMaterial` models exactly that with `clearcoat`, and
+ * it is the difference between a car that looks moulded from plastic and one
+ * that looks painted — the highlight from the sky rides on top of the colour
+ * instead of being tinted by it.
+ *
+ * That second specular lobe costs shader time, so only the player's car gets
+ * it, and only where the device can afford it; the traffic keeps the plain
+ * standard material.
+ */
+/**
+ * The scene's environment map is the procedural sky with the sun still in it,
+ * so its radiance runs well above 1 and the world only takes a tenth of it as
+ * diffuse light (see `world/reflections.js`). A mirror wants the other nine
+ * tenths back, which is what this multiplier is: `ENV * 1` means "reflects
+ * the sky as brightly as the sky actually is".
+ */
+const ENV = 10;
+
 const MATS = {
-  paint: () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.26, metalness: 0.6 }),
-  detail: () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.3 }),
+  paint: (rich = false) => (rich
+    ? new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, roughness: 0.28, metalness: 0.55,
+      clearcoat: 1, clearcoatRoughness: 0.055, envMapIntensity: ENV * 0.85
+    })
+    : new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.26, metalness: 0.6, envMapIntensity: ENV * 0.8
+    })),
+  detail: () => new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.62, metalness: 0.3, envMapIntensity: ENV * 0.35
+  }),
+  chrome: () => new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.16, metalness: 1, envMapIntensity: ENV * 1.2
+  }),
   glass: () => new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.06, metalness: 0.2,
-    transparent: true, opacity: 0.66
+    vertexColors: true, roughness: 0.05, metalness: 0.35,
+    transparent: true, opacity: 0.66, envMapIntensity: ENV * 1.1
   }),
   glow: () => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: 0x555555 })
 };
@@ -797,13 +1163,19 @@ export function createPlayerCar(spec, colourHex) {
   // yaw about the world axis first, then lean with the ground underneath
   group.rotation.order = 'YXZ';
 
-  const paintMat = MATS.paint();
+  const paintMat = MATS.paint(RICH_PAINT);
   paintMat.color.setHex(colourHex);
   if (spec.paintStyle) {
     paintMat.roughness = spec.paintStyle.roughness;
     paintMat.metalness = spec.paintStyle.metalness;
+    // matte paint has no lacquer over it; pearl has a very deep one
+    if (paintMat.clearcoat !== undefined) {
+      paintMat.clearcoat = spec.paintStyle.id === 'mat' ? 0.12 : 1;
+      paintMat.clearcoatRoughness = spec.paintStyle.id === 'sedef' ? 0.03 : 0.055;
+    }
   }
   const detailMat = MATS.detail();
+  const chromeMat = MATS.chrome();
   const glassMat = MATS.glass();
   if (spec.glassOpacity !== undefined) glassMat.opacity = spec.glassOpacity;
 
@@ -817,6 +1189,12 @@ export function createPlayerCar(spec, colourHex) {
   const detailMesh = new THREE.Mesh(parts.detail, detailMat);
   detailMesh.castShadow = true;
   bodyRoot.add(detailMesh);
+
+  if (parts.chrome) {
+    const chromeMesh = new THREE.Mesh(parts.chrome, chromeMat);
+    chromeMesh.castShadow = true;
+    bodyRoot.add(chromeMesh);
+  }
 
   if (parts.glass) bodyRoot.add(new THREE.Mesh(parts.glass, glassMat));
 
@@ -833,10 +1211,20 @@ export function createPlayerCar(spec, colourHex) {
   const wheelMeshes = parts.wheels.map((w) => {
     const holder = new THREE.Group();
     holder.position.set(w.x, w.y, w.z);
-    const mesh = new THREE.Mesh(parts.wheel, wheelMat);
+    // The rim is dished, so the two sides of the car need mirrored copies —
+    // one geometry on both sides shows the back of the left-hand wheels.
+    const geo = (w.x > 0 || !parts.wheelL) ? parts.wheel : parts.wheelL;
+    const mesh = new THREE.Mesh(geo, wheelMat);
     mesh.castShadow = true;
     if (w.s) mesh.scale.setScalar(w.s);
     holder.add(mesh);
+    // the caliper hangs off the upright, so it stays put while the wheel turns
+    if (parts.caliper) {
+      const cal = new THREE.Mesh(parts.caliper, detailMat);
+      if (w.x < 0) cal.scale.x = -1;
+      if (w.s) cal.scale.multiplyScalar(w.s);
+      holder.add(cal);
+    }
     holder.userData.front = w.front;
     holder.userData.spin = mesh;
     // rest position, so the suspension has something to travel around
@@ -853,9 +1241,13 @@ export function createPlayerCar(spec, colourHex) {
     group,
     bodyRoot,
     paintMat,
+    detailMat,
+    chromeMat,
+    glassMat,
     headMat,
     tailMat,
     signMat,
+    wheelMat,
     wheelMeshes,
     spec,
     setColour(hex) { paintMat.color.setHex(hex); }
