@@ -81,6 +81,23 @@ export function buildProps(network, ground, colliders) {
   const parkedGeos = [];
   const wirePoints = [];
 
+  // Where each breakable thing sits inside its merged mesh. The merge keeps
+  // the order it is given, so a running vertex count is all it takes to know
+  // which slice belongs to which lamp post.
+  const breakables = [];
+  let poleVerts = 0;
+  let parkedVerts = 0;
+  const pushPole = (geo) => {
+    poleGeos.push(geo);
+    poleVerts += geo.attributes.position.count;
+    return geo;
+  };
+  const pushParked = (geo) => {
+    parkedGeos.push(geo);
+    parkedVerts += geo.attributes.position.count;
+    return geo;
+  };
+
   // instanced buffers
   const trunks = [];
   const canopies = [];
@@ -132,9 +149,10 @@ export function buildProps(network, ground, colliders) {
       const y = p.y + 0.16;
       const h = edge.type === 'highway' ? 11 : edge.major ? 9 : 7.5;
 
+      const start = poleVerts;
       const pole = new THREE.CylinderGeometry(0.11, 0.16, h, 6);
       pole.translate(x, y + h / 2, z);
-      poleGeos.push(tinted(pole, 0x545a60));
+      pushPole(tinted(pole, 0x545a60));
 
       // curved arm reaching over the carriageway
       const armLen = 2.6;
@@ -144,7 +162,7 @@ export function buildProps(network, ground, colliders) {
         .makeTranslation(x, y + h, z)
         .multiply(new THREE.Matrix4().makeRotationY(Math.atan2(p.rx * side, p.rz * side)));
       arm.applyMatrix4(m);
-      poleGeos.push(tinted(arm, 0x545a60));
+      pushPole(tinted(arm, 0x545a60));
 
       const hx = x - p.rx * side * armLen * 0.9;
       const hz = z - p.rz * side * armLen * 0.9;
@@ -155,7 +173,13 @@ export function buildProps(network, ground, colliders) {
         poolR: h * 0.85
       });
 
-      colliders.add(x, z, 0.2, 0.2, 0);
+      breakables.push({
+        kind: 'lamba', x, y, z, height: h,
+        start, count: poleVerts - start,
+        box: colliders.add(x, z, 0.2, 0.2, 0),
+        lampIndex: lampHeads.length - 1,
+        colour: 0x545a60, headColour: 0x22252a
+      });
       side *= -1;
     }
 
@@ -226,15 +250,22 @@ export function buildProps(network, ground, colliders) {
         const z = p.z + p.rz * sd * off;
         if (inLandmark(x, z, 0.9)) continue;
         if (colliders.resolveCircle(x, z, 2.0)) continue;
-        const geo = parkedCarGeo(rng, randPick(rng, CAR_COLOURS));
+        const colour = randPick(rng, CAR_COLOURS);
+        const geo = parkedCarGeo(rng, colour);
         const rot = Math.atan2(p.dx, p.dz) + (sd > 0 ? Math.PI : 0) + randRange(rng, -0.05, 0.05);
         geo.applyMatrix4(
           new THREE.Matrix4()
             .makeTranslation(x, p.y + 0.1, z)
             .multiply(new THREE.Matrix4().makeRotationY(rot))
         );
-        parkedGeos.push(geo);
-        colliders.add(x, z, 1.0, 2.2, rot);
+        const start = parkedVerts;
+        pushParked(geo);
+        breakables.push({
+          kind: 'park', x, y: p.y + 0.1, z, height: 1.5, yaw: rot,
+          start, count: parkedVerts - start,
+          box: colliders.add(x, z, 1.0, 2.2, rot),
+          colour
+        });
       }
     }
 
@@ -321,9 +352,10 @@ export function buildProps(network, ground, colliders) {
         const y = node.y + 0.16;
 
         const H = 5.2;
+        const start = poleVerts;
         const pole = new THREE.CylinderGeometry(0.1, 0.14, H, 6);
         pole.translate(x, y + H / 2, z);
-        poleGeos.push(tinted(pole, 0x3c4148));
+        pushPole(tinted(pole, 0x3c4148));
 
         const armLen = Math.min(hw + 0.8, 6);
         const arm = new THREE.BoxGeometry(armLen, 0.12, 0.12);
@@ -333,7 +365,7 @@ export function buildProps(network, ground, colliders) {
             .makeTranslation(x, y + H, z)
             .multiply(new THREE.Matrix4().makeRotationY(Math.atan2(rx, rz)))
         );
-        poleGeos.push(tinted(arm, 0x3c4148));
+        pushPole(tinted(arm, 0x3c4148));
 
         const hx = x - rx * armLen * 0.85;
         const hz = z - rz * armLen * 0.85;
@@ -342,8 +374,9 @@ export function buildProps(network, ground, colliders) {
         const housing = new THREE.BoxGeometry(0.42, 1.25, 0.34);
         housing.translate(hx, hy, hz);
         housing.applyMatrix4(new THREE.Matrix4());
-        poleGeos.push(tinted(housing, 0x22262b));
+        pushPole(tinted(housing, 0x22262b));
 
+        const lensFrom = signalLenses.length;
         for (let lens = 0; lens < 3; lens++) {
           signalLenses.push({
             x: hx - dx * 0.2,
@@ -355,7 +388,13 @@ export function buildProps(network, ground, colliders) {
             lens
           });
         }
-        colliders.add(x, z, 0.2, 0.2, 0);
+        breakables.push({
+          kind: 'lamba', x, y, z, height: H,
+          start, count: poleVerts - start,
+          box: colliders.add(x, z, 0.2, 0.2, 0),
+          lensFrom, lensCount: 3,
+          colour: 0x3c4148, headColour: 0x22262b
+        });
       }
     }
   }
@@ -396,7 +435,7 @@ export function buildProps(network, ground, colliders) {
   }
 
   // --------------------------------------------------------------- meshes
-  mergeInto(
+  const poleMesh = mergeInto(
     group,
     poleGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.25 }),
@@ -408,12 +447,14 @@ export function buildProps(network, ground, colliders) {
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
     'furniture'
   );
-  mergeInto(
+  const parkedMesh = mergeInto(
     group,
     parkedGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 }),
     'parked-cars'
   );
+  // the merged buffers get written to when something is knocked down
+  for (const b of breakables) b.mesh = b.kind === 'park' ? parkedMesh : poleMesh;
 
   if (wirePoints.length) {
     const wg = new THREE.BufferGeometry();
@@ -537,6 +578,20 @@ export function buildProps(network, ground, colliders) {
   const pedestrians = createPedestrians(network, rng);
   group.add(pedestrians.mesh);
 
+  // the instanced bits that have to vanish along with their column
+  for (const b of breakables) {
+    b.instances = [];
+    if (b.lampIndex !== undefined) {
+      b.instances.push({ mesh: headMesh, index: b.lampIndex });
+      b.instances.push({ mesh: poolMesh, index: b.lampIndex });
+    }
+    if (b.lensFrom !== undefined) {
+      for (let i = 0; i < b.lensCount; i++) {
+        b.instances.push({ mesh: lensMesh, index: b.lensFrom + i });
+      }
+    }
+  }
+
   return {
     group,
     lampMaterial: headMat,
@@ -544,6 +599,7 @@ export function buildProps(network, ground, colliders) {
     signalLenses,
     lensMesh,
     pedestrians,
+    breakables,
     treeCount: trunks.length
   };
 }

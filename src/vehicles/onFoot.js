@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { createPerson, poseWalk } from './person.js';
 import { clamp, damp, wrapAngle } from '../util/math.js';
 
-const WALK = 1.9;
-const RUN = 5.0;
+/** 4 km/h walking, a jog at 10 when you hold shift. */
+const WALK = 4 / 3.6;
+const RUN = 10 / 3.6;
 const EYE = 1.62;
 
 /**

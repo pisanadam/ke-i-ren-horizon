@@ -218,10 +218,24 @@ export class Vehicle {
     this.impact = Math.max(0, this.impact - dt * 3);
     const radius = spec.width * 0.48;
     const samples = [0.32, 0, -0.32];
+
+    /**
+     * Something breakable is in the way. If the car is going fast enough to
+     * take it out, it does — and the wall it would have been stops existing
+     * for this query, so the car ploughs on through instead of bouncing off
+     * a lamp post it just sheared in half.
+     */
+    const onFrail = (box) => {
+      if (!this.onFrail) return false;
+      const sp = this.speed;
+      if (sp < 5) return false;                 // a crawl just leans on it
+      return this.onFrail(box, sp, this.velocity.x / sp, this.velocity.z / sp);
+    };
+
     for (const s of samples) {
       const sx = this.position.x + this._fwd.x * spec.length * s;
       const sz = this.position.z + this._fwd.z * spec.length * s;
-      const hit = colliders.resolveCircle(sx, sz, radius);
+      const hit = colliders.resolveCircle(sx, sz, radius, onFrail);
       if (!hit) continue;
       this.position.x += hit.x - sx;
       this.position.z += hit.z - sz;

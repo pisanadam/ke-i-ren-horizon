@@ -5,6 +5,13 @@ import { makeRng, clamp, damp, randRange } from '../util/math.js';
 import { QUALITY } from '../quality.js';
 
 const MAX_AGENTS = QUALITY.trafficAgents;
+
+/**
+ * Closing speed, in metres a second, past which a struck car leaves the road
+ * instead of being nudged aside. About 32 km/h — brisk enough that ordinary
+ * jostling in traffic still just shoves, but a proper run at one launches it.
+ */
+const FLING_SPEED = 9;
 const SPAWN_MIN = 65;
 const SPAWN_MAX = QUALITY.trafficSpawnMax;
 const DESPAWN = QUALITY.trafficSpawnMax + 100;
@@ -30,7 +37,8 @@ export class Traffic {
         active: false, type: 0, colour: new THREE.Color(0xffffff),
         edge: null, forward: true, s: 0, lane: 0, laneOffset: 0,
         speed: 0, desired: 12, x: 0, y: 0, z: 0, yaw: 0,
-        nudgeX: 0, nudgeZ: 0, wheelSpin: 0, stopped: 0, honkCooldown: 0
+        nudgeX: 0, nudgeZ: 0, wheelSpin: 0, stopped: 0, honkCooldown: 0,
+        body: null, flungFor: 0
       });
     }
   }
@@ -139,6 +147,9 @@ export class Traffic {
 
       const lane = this._laneFor(edge);
       agent.active = true;
+      agent.body = null;
+      agent.flungFor = 0;
+      agent.quat = null;
       agent.type = this._pickType();
       agent.colour.setHex(TRAFFIC_COLOURS[Math.floor(this.rng() * TRAFFIC_COLOURS.length)]);
       agent.edge = edge;
@@ -231,7 +242,7 @@ export class Traffic {
     // ---- spawn / despawn -------------------------------------------------
     for (const a of this.agents) {
       if (!a.active) continue;
-      if (Math.hypot(a.x - player.x, a.z - player.z) > DESPAWN) a.active = false;
+      if (Math.hypot(a.x - player.x, a.z - player.z) > DESPAWN) this._retire(a);
     }
     // the settings screen can thin the traffic out, or empty the roads
     const wanted = Math.round(this.agents.length * this.density);
@@ -243,6 +254,7 @@ export class Traffic {
         if (over <= 0) break;
         if (!a.active) continue;
         if (Math.hypot(a.x - player.x, a.z - player.z) < 120) continue;
+        if (a.body) continue;              // let a wreck finish falling
         a.active = false;
         over--;
         live--;
@@ -257,6 +269,13 @@ export class Traffic {
     // ---- drive -----------------------------------------------------------
     for (const a of this.agents) {
       if (!a.active) continue;
+
+      // A car that has been hit hard is no longer driving anywhere: it is a
+      // rigid body now, and it stays one until it has stopped rolling.
+      if (a.body) {
+        this._followBody(a, dt);
+        continue;
+      }
 
       let target = a.desired;
 
@@ -328,6 +347,47 @@ export class Traffic {
     this._render();
   }
 
+  /**
+   * Sends a car flying.
+   *
+   * The agent stops driving and hands itself to the rigid-body solver: from
+   * here on its position and its full orientation come from the physics, so
+   * it can leave the ground, roll over and end up on its roof.
+   */
+  fling(a, vx, vy, vz, spin) {
+    if (!this.rigid || a.body) return;
+    const spec = this.types[a.type].spec;
+    const b = this.rigid.spawn({
+      x: a.x, y: a.y + spec.wheelRadius + 0.35, z: a.z,
+      hx: spec.width * 0.5, hy: (spec.bodyHeight + spec.cabinHeight) * 0.5, hz: spec.length * 0.5,
+      yaw: a.yaw,
+      mass: spec.mass,
+      restitution: 0.14,
+      friction: 0.72,
+      render: false,          // the car's own mesh is drawn from this body
+      vx, vy, vz,
+      sx: spin.x, sy: spin.y, sz: spin.z
+    });
+    a.body = b;
+    a.flungFor = 0;
+    a.speed = 0;
+    a.stopped = 99;
+  }
+
+  /** Reads a flung car's transform back out of the solver. */
+  _followBody(a, dt) {
+    const b = a.body;
+    a.flungFor += dt;
+    if (!b.alive) { a.active = false; a.body = null; return; }
+    a.x = b.pos.x;
+    a.y = b.pos.y - (this.types[a.type].spec.wheelRadius + 0.35);
+    a.z = b.pos.z;
+    a.quat = b.quat;
+    a.wheelSpin += dt * 2.4;
+    // once it has come to rest it just lies there; after a while it is cleared
+    if (a.flungFor > 26) { b.alive = false; a.active = false; a.body = null; }
+  }
+
   /** Player-vs-traffic contact: shoves both parties apart. */
   _collidePlayer(dt, pv) {
     const spec = pv.spec;
@@ -335,7 +395,7 @@ export class Traffic {
     const pFwdZ = Math.cos(pv.yaw);
 
     for (const a of this.agents) {
-      if (!a.active) continue;
+      if (!a.active || a.body) continue;
       const dx = a.x - pv.position.x;
       const dz = a.z - pv.position.z;
       const rough = Math.hypot(dx, dz);
@@ -377,6 +437,28 @@ export class Traffic {
             pv.impact = Math.max(pv.impact, Math.min(1, vn / 10));
             a.speed = Math.max(0, a.speed - vn * 0.35);
             a.stopped = 0.9;
+
+            // Past a real closing speed it stops being a shove. The struck
+            // car takes the momentum it is due — the lighter it is against
+            // what hit it, the further it goes — and leaves the road.
+            if (vn > FLING_SPEED && !a.body) {
+              const share = (2 * spec.mass) / (spec.mass + other.mass);
+              const push = vn * share * 0.85;
+              // hitting off-centre is what makes it spin rather than slide
+              const lever = ((ox - a.x) * aFwdX + (oz - a.z) * aFwdZ) / Math.max(1, other.length);
+              const side = ((ox - a.x) * -aFwdZ + (oz - a.z) * aFwdX) / Math.max(1, other.width);
+              this.fling(
+                a,
+                nx * push,
+                Math.min(7.5, vn * 0.3),
+                nz * push,
+                {
+                  x: (nz * push) * 0.16 * (1 - Math.abs(lever)),
+                  y: -lever * push * 0.5 - side * push * 0.25,
+                  z: (-nx * push) * 0.16 * (1 - Math.abs(lever))
+                }
+              );
+            }
           }
         }
       }
@@ -398,7 +480,12 @@ export class Traffic {
       if (i >= MAX_AGENTS) continue;
 
       dummy.position.set(a.x, a.y, a.z);
-      dummy.rotation.set(0, a.yaw, 0);
+      if (a.body) {
+        // a car in the air is not upright, so it needs the whole rotation
+        dummy.quaternion.copy(a.body.quat);
+      } else {
+        dummy.rotation.set(0, a.yaw, 0);
+      }
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
 
@@ -432,6 +519,12 @@ export class Traffic {
       t.wheels.instanceMatrix.needsUpdate = true;
     }
 
+  }
+
+  /** Takes an agent off the road, returning its body to the pool if it has one. */
+  _retire(a) {
+    if (a.body) { a.body.alive = false; a.body = null; }
+    a.active = false;
   }
 
   /** Positions for the minimap. */

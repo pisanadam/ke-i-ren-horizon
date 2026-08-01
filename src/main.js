@@ -13,6 +13,8 @@ import { buildRamps } from './world/ramps.js';
 import { ColliderGrid } from './world/colliders.js';
 import { SkyEnv } from './world/skyEnv.js';
 import { Reflections, markReflective } from './world/reflections.js';
+import { RigidWorld } from './world/rigid.js';
+import { Breakables } from './world/breakables.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
 
@@ -146,10 +148,20 @@ class Game {
     this.scene.add(props.group);
     this.props = props;
 
+    // Loose objects: everything that gets knocked down lands in here.
+    this.rigid = new RigidWorld(this.ground, this.scene);
+    this.breakables = new Breakables(this.rigid);
+    for (const b of props.breakables) this.breakables.add(b);
+    this.breakables.onBreak = (item, blow) => {
+      this.audio?.thud(Math.min(1, (blow?.speed ?? 8) / 18));
+      this.rig?.addShake(Math.min(0.7, (blow?.speed ?? 8) / 30) * this.shakeScale);
+    };
+
     await step(90, 'Trafik akıyor…');
     this.skyEnv = new SkyEnv(this.scene, this.renderer);
     this.effects = new Effects(this.scene);
     this.traffic = new Traffic(this.world, this.scene);
+    this.traffic.rigid = this.rigid;
     this.scene.add(this.traffic.group);
 
     // ---- what a car sees when it looks around itself ---------------------
@@ -236,6 +248,19 @@ class Game {
     this.scene.add(this.playerCar.group);
 
     this.vehicle = new Vehicle(spec, this.world);
+    // what happens when the car meets something that can be knocked down
+    this.vehicle.onFrail = (box, speed, dx, dz) => {
+      if (!box.brk || !this.breakables) return false;
+      const item = box.brk;
+      if (!this.breakables.smash(item, { speed, vx: dx * speed, vz: dz * speed })) return false;
+      // Going through it is not free. A lamp column barely registers; a parked
+      // car takes a quarter of the speed out of you, which is what stops a
+      // street of them being a free run.
+      const toll = item.kind === 'park' ? 0.76 : 0.94;
+      this.vehicle.velocity.multiplyScalar(toll);
+      this.vehicle.impact = Math.max(this.vehicle.impact, Math.min(1, speed / 22));
+      return true;
+    };
     if (keepPlace && prev) {
       this.vehicle.position.copy(prev.position);
       this.vehicle.yaw = prev.yaw;
@@ -942,6 +967,7 @@ class Game {
       this.metro.update(dt, focus);
       this.props.pedestrians.update(dt, this.clockTime, focus);
       this.effects.update(dt);
+      this.rigid.update(dt, focus);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
       this.reflections.update(

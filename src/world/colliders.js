@@ -37,9 +37,15 @@ export class ColliderGrid {
 
   /**
    * Resolves a circle of `radius` at (x,z) against nearby boxes.
-   * @returns {{x:number,z:number,nx:number,nz:number,depth:number}|null}
+   *
+   * `onFrail` is called for anything marked breakable before it is treated as
+   * a wall. Returning true means it gave way, and the circle passes straight
+   * through — which is the difference between shearing a lamp post off at the
+   * base and bouncing off it.
+   *
+   * @returns {{x:number,z:number,nx:number,nz:number,depth:number,box:object}|null}
    */
-  resolveCircle(x, z, radius) {
+  resolveCircle(x, z, radius, onFrail = null) {
     const cx = Math.floor(x / CELL);
     const cz = Math.floor(z / CELL);
     let px = x;
@@ -47,6 +53,7 @@ export class ColliderGrid {
     let hitNx = 0;
     let hitNz = 0;
     let maxDepth = 0;
+    let hitBox = null;
 
     for (let ix = cx - 1; ix <= cx + 1; ix++) {
       for (let iz = cz - 1; iz <= cz + 1; iz++) {
@@ -55,6 +62,7 @@ export class ColliderGrid {
         for (let n = 0; n < arr.length; n++) {
           const b = this.items[arr[n]];
           if (!b.solid) continue;
+          if (b.frail && onFrail && onFrail(b)) continue;
           // to box space
           const dx = px - b.cx;
           const dz = pz - b.cz;
@@ -93,13 +101,14 @@ export class ColliderGrid {
             maxDepth = depth;
             hitNx = nx;
             hitNz = nz;
+            hitBox = b;
           }
         }
       }
     }
 
     if (maxDepth <= 0) return null;
-    return { x: px, z: pz, nx: hitNx, nz: hitNz, depth: maxDepth };
+    return { x: px, z: pz, nx: hitNx, nz: hitNz, depth: maxDepth, box: hitBox };
   }
 
   /** True when a footprint of the given half-extents would overlap something. */
