@@ -53,25 +53,32 @@ Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
 adın. Aynı kodu giren herkes aynı Ankara'da buluşur; arkadaşının aracı
 haritada ve yolda görünür.
 
-Burada bilmen gereken bir kısıt var: **tarayıcı gelen bağlantı dinleyemez.**
-Yani tek başına bir HTML dosyası iki ayrı cihazı kendi kendine buluşturamaz —
-bu oyunun eksiği değil, tarayıcının yapamadığı bir şey. İki yol var:
+Bir kişi **ODA KUR** der, ekrandaki kodu söyler; diğeri aynı kodu yazıp
+**KATIL** der. Kurulum yok, sunucu yok: bağlantı kurulduktan sonra araçlar
+WebRTC veri kanalıyla doğrudan cihazdan cihaza gider. Oyun verisi kimsenin
+sunucusundan geçmez.
 
-**Aynı bilgisayarda, kurulum yok.** Dosyayı iki sekmede aç, ikisinde de aynı
-kodu gir. Oyun `BroadcastChannel` ile sekmeleri doğrudan konuşturur.
+Tek bir yerde dışarıya ihtiyaç var: iki cihazın birbirini **bulması**. WebRTC
+bağlanmadan önce iki tarafın adres bilgisini (SDP ve ICE adayları) takas
+etmesi gerekir ve tarayıcı gelen bağlantı dinleyemediği için bu takasa bir
+aracı şarttır. Aracı olarak `ntfy.sh` kullanılıyor — kayıt istemeyen, ücretsiz
+bir bildirim servisi. 6 haneli kod orada yalnızca bir konu adı:
+`anksur-483920-join`. Tanışma bitince o servisle işimiz kalmaz.
 
-**Aynı ağdaki iki cihaz.** Birinizin oyunun klasöründe sunucuyu açması yeter:
+Tek nokta arıza olmasın diye her mesaj **iki aynaya** birden gönderilir
+(`ntfy.sh` ve `ntfy.envs.net`) ve ikisi birden dinlenir; aynı mesaj id'siyle
+tekilleştirilir. Servisin mesaj sınırını aşan oturum tanımları numaralı
+parçalara bölünüp karşıda birleştirilir.
 
-```bash
-node server.mjs
-```
+**Aracı engellenirse.** Okul ve iş ağları böyle servisleri kapatabiliyor. O
+zaman co-op ekranındaki *Elle bağlan* bölümünden kendi kodunu üretip
+(yaklaşık 900 karakter, WhatsApp'a rahat sığar) karşı tarafa yollayabilir,
+onun kodunu yapıştırıp bağlanabilirsin. Burada aday toplama bitene kadar
+beklenir, çünkü tek seferlik metnin içinde her adresin bulunması gerekir.
 
-Yazdırdığı adresi (`http://192.168.x.x:7777`) herkes tarayıcısında açsın ve
-aynı kodu girsin. Sunucunun hiçbir bağımlılığı yok — WebSocket el sıkışması
-ve çerçeveleme dosyanın içinde yazılı, çünkü başka her şeyi tek dosyaya
-sığdırmış bir oyunun birlikte oynamak için `npm install` istemesi tuhaf
-olurdu. Sunucu sadece mesajları aktarır; oyunu yine herkes kendi
-tarayıcısında çalıştırır.
+Bilinen sınır: yalnızca STUN var, TURN yok. İki taraf da katı simetrik NAT
+arkasındaysa doğrudan bağlantı kurulamaz — TURN sunucusu hesap ve para
+istediği için "bağımlılık yok" kuralını bozmamak adına konmadı.
 
 ### Araçlar neden zıplamıyor
 

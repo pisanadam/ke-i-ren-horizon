@@ -575,7 +575,8 @@ class Game {
     const status = document.getElementById('coop-status');
     const list = document.getElementById('coop-list');
 
-    document.getElementById('coop-hint').textContent = this.coop.hint;
+    document.getElementById('coop-hint').textContent =
+      'Bir kişi oda kursun, kodu diğerine söylesin. Bağlantı doğrudan cihazlar arasında kurulur.';
     nameEl.value = localStorage.getItem('ankara-coop-ad') || '';
     input.value = localStorage.getItem('ankara-coop-oda') || '';
 
@@ -614,14 +615,48 @@ class Game {
       this.coop.leave();
       this.hud.showToast('Co-op kapatıldı', 1.6);
     });
-    document.getElementById('coop-join').addEventListener('click', () => {
-      const code = input.value.replace(/\D/g, '');
+    const start = (asHost) => {
+      let code = input.value.replace(/\D/g, '');
+      // opening a room without a code in the box would be a dead end
+      if (asHost && code.length !== 6) {
+        code = String(Math.floor(100000 + Math.random() * 900000));
+        input.value = code;
+      }
       localStorage.setItem('ankara-coop-oda', code);
       localStorage.setItem('ankara-coop-ad', nameEl.value);
-      if (this.coop.join(code, nameEl.value || 'Oyuncu')) {
-        this.hud.showToast(`${code} odasına bağlanılıyor…`, 2.2);
+      if (!this.coop.join(code, nameEl.value || 'Oyuncu', asHost)) return;
+      this.hud.showToast(
+        asHost ? `Oda kuruldu · kod ${code}` : `${code} odasına bağlanılıyor…`, 2.6
+      );
+    };
+    document.getElementById('coop-host').addEventListener('click', () => start(true));
+    document.getElementById('coop-join').addEventListener('click', () => start(false));
+
+    // ---- copy-and-paste rescue -----------------------------------------
+    const mine = document.getElementById('coop-mine');
+    const theirs = document.getElementById('coop-theirs');
+    document.getElementById('coop-mk').addEventListener('click', async () => {
+      mine.value = 'üretiliyor…';
+      try {
+        mine.value = await this.coop.manualOffer(nameEl.value || 'Oyuncu');
+        mine.select();
+      } catch (err) {
+        mine.value = `hata: ${err.message}`;
       }
     });
+    document.getElementById('coop-ma').addEventListener('click', async () => {
+      const text = theirs.value.trim();
+      if (!text) return;
+      try {
+        const reply = await this.coop.manualAccept(text, nameEl.value || 'Oyuncu');
+        // pasting an offer makes us the host, and produces an answer to send back
+        if (reply) { mine.value = reply; mine.select(); }
+        else this.hud.showToast('Bağlanılıyor…', 2);
+      } catch (err) {
+        this.hud.showToast(`Kod okunamadı: ${err.message}`, 3);
+      }
+    });
+
     input.addEventListener('input', () => {
       input.value = input.value.replace(/\D/g, '').slice(0, 6);
     });

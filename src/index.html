@@ -178,21 +178,38 @@
       <ul class="coop-list" id="coop-list"></ul>
 
       <details class="coop-help">
-        <summary>Aynı ağdaki başka cihazla nasıl oynanır?</summary>
+        <summary>Nasıl çalışıyor?</summary>
         <p>
-          Tarayıcı gelen bağlantı dinleyemez, bu yüzden iki ayrı cihazın buluşması
-          için birinin sunucuyu açması gerekir. Oyunun klasöründe:
+          Sunucu yok. Bir kişi <b>ODA KUR</b> deyip ekrandaki kodu söylüyor,
+          diğeri aynı kodu yazıp <b>KATIL</b> diyor. Bağlantı kurulduktan sonra
+          arabalar doğrudan cihazdan cihaza gidiyor — oyun verisi kimsenin
+          sunucusundan geçmiyor.
         </p>
-        <p><code>node server.mjs</code></p>
         <p>
-          Yazdırdığı adresi (<code>http://192.168.x.x:7777</code>) herkes açsın,
-          buraya aynı 6 haneli kodu girsin. Dosyayı doğrudan açtıysan co-op
-          yalnızca aynı tarayıcının ikinci sekmesiyle çalışır.
+          Yalnız iki cihazın birbirini bulabilmesi için önce adres bilgisi
+          takas etmesi gerekiyor. Bunun için <code>ntfy.sh</code> kullanılıyor:
+          6 haneli kod orada sadece bir buluşma noktasının adı. Tanışma bitince
+          o servisle işimiz kalmıyor.
         </p>
+      </details>
+
+      <details class="coop-help">
+        <summary>Bağlanamıyor musun? Elle bağlan</summary>
+        <p>
+          Okul ve iş ağları buluşma servisini engelleyebiliyor. O zaman
+          aşağıdaki metni WhatsApp'tan yollayıp elle bağlanabilirsin.
+        </p>
+        <div class="coop-manual">
+          <button id="coop-mk" class="ghost-btn small">1 · KENDİ KODUMU ÜRET</button>
+          <textarea id="coop-mine" rows="3" readonly placeholder="Kod burada çıkacak — kopyala, karşı tarafa yolla"></textarea>
+          <textarea id="coop-theirs" rows="3" placeholder="Karşı taraftan gelen kodu buraya yapıştır"></textarea>
+          <button id="coop-ma" class="ghost-btn small">2 · YAPIŞTIRDIĞIM KODU BAĞLA</button>
+        </div>
       </details>
 
       <div class="settings-actions">
         <button id="coop-leave" class="ghost-btn small">AYRIL</button>
+        <button id="coop-host" class="ghost-btn">ODA KUR</button>
         <button id="coop-join" class="primary">KATIL</button>
         <button id="coop-close" class="ghost-btn">KAPAT</button>
       </div>

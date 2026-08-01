@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createTransport, transportKind, transportHint } from './transport.js';
+import { RtcTransport } from './rtc.js';
 import { createPlayerCar } from '../vehicles/carModel.js';
 import { createPerson, poseWalk } from '../vehicles/person.js';
 import { CAR_BY_ID, CARS } from '../vehicles/catalog.js';
@@ -193,27 +193,36 @@ export class Coop {
     this.onChange = () => {};
   }
 
-  get kind() { return transportKind(); }
-  get hint() { return transportHint(); }
   get count() { return this.peers.size + (this.active ? 1 : 0); }
 
-  join(code, name) {
+  /**
+   * Opens or joins a room.
+   * @param {string} code six digits
+   * @param {string} name what to call this player
+   * @param {boolean} isHost true to open the room, false to join someone's
+   */
+  join(code, name, isHost = false) {
     this.leave();
     this.name = name || 'Oyuncu';
+    this.isHost = !!isHost;
     this.room = String(code).replace(/\D/g, '').slice(0, 6);
     if (this.room.length !== 6) {
       this.status = 'kod 6 haneli olmalı';
       this.onChange();
       return false;
     }
-    this.status = 'bağlanıyor…';
+    this.status = isHost ? 'oda açılıyor…' : 'bağlanılıyor…';
     this.onChange();
 
-    this.tp = createTransport(this.room, name || 'Oyuncu');
+    this.tp = new RtcTransport(this.room, this.name, isHost);
     this.tp.onOpen = (msg) => {
       this.active = true;
-      this.status = 'bağlandı';
+      this.status = isHost ? 'oda açık' : 'bağlandı';
       for (const p of msg.peers || []) this._add(p.id, p.name);
+      this.onChange();
+    };
+    this.tp.onStatus = (text) => {
+      this.status = text;
       this.onChange();
     };
     this.tp.onMessage = (msg) => this._handle(msg);
@@ -226,6 +235,43 @@ export class Coop {
     };
     this.tp.connect();
     return true;
+  }
+
+  /** The copy-and-paste path, for networks that block the signalling service. */
+  async manualOffer(name) {
+    this.leave();
+    this.name = name || 'Oyuncu';
+    this.room = 'elle';
+    this.tp = this._manualTransport();
+    return this.tp.manualOffer();
+  }
+
+  async manualAccept(text, name) {
+    if (!this.tp) {
+      this.name = name || 'Oyuncu';
+      this.room = 'elle';
+      this.tp = this._manualTransport();
+    }
+    return this.tp.manualAccept(text);
+  }
+
+  _manualTransport() {
+    const tp = new RtcTransport('000000', this.name, false);
+    tp.onOpen = (msg) => {
+      this.active = true;
+      this.status = 'bağlandı';
+      for (const p of msg.peers || []) this._add(p.id, p.name);
+      this.onChange();
+    };
+    tp.onStatus = (text) => { this.status = text; this.onChange(); };
+    tp.onMessage = (msg) => this._handle(msg);
+    tp.onClose = () => {
+      this.status = this.active ? 'bağlantı koptu' : 'bağlanılamadı';
+      this.active = false;
+      this._clearPeers();
+      this.onChange();
+    };
+    return tp;
   }
 
   leave() {
