@@ -107,13 +107,27 @@ export class Breakables {
     const ox = (px - item.x) * cs - (pz - item.z) * sn;
     const oz = (px - item.x) * sn + (pz - item.z) * cs;
 
-    // wallBox lays the faces down in this order; heading +Z hits the -Z wall
-    const face = Math.abs(lz) > Math.abs(lx)
-      ? (lz > 0 ? 1 : 0)
-      : (lx > 0 ? 3 : 2);
-
     const hw = item.hw ?? 6;
     const hd = item.hd ?? 6;
+
+    /**
+     * Which wall took it.
+     *
+     * Whichever one the car is actually up against — not whichever one it is
+     * heading towards. Those are the same thing on the way in and opposite
+     * ones on the way out: standing inside a building pressed against the far
+     * wall, the direction of travel names the wall you came in through, and
+     * you would tear another hole in that one while the wall in front of you
+     * stayed shut.
+     */
+    let face;
+    if (blow && blow.x !== undefined) {
+      const d = [Math.abs(hd - oz), Math.abs(oz + hd), Math.abs(hw - ox), Math.abs(ox + hw)];
+      face = d.indexOf(Math.min(...d));
+    } else {
+      // wallBox lays the faces down in this order; heading +Z hits the -Z wall
+      face = Math.abs(lz) > Math.abs(lx) ? (lz > 0 ? 1 : 0) : (lx > 0 ? 3 : 2);
+    }
     // how far along that wall the car went in, 0 at one end and 1 at the other
     let t;
     if (face === 0) t = (ox + hw) / (2 * hw);
@@ -158,6 +172,9 @@ export class Breakables {
     if (item.box) {
       item.box.holes = item.box.holes || [];
       item.box.holes.push({ x: worldX, z: worldZ, r: (2.2 * 2) / 2 + 1.2 });
+      // and from now on the footprint is a shell with a room in it, so what
+      // you drove into is somewhere you can drive around
+      if (item.box.shell === undefined) item.box.shell = 0.8;
     }
 
     const first = !item.gone;

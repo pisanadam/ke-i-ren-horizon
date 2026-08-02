@@ -21,6 +21,7 @@ import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
 
 import { createPlayerCar, sillHeight } from './vehicles/carModel.js';
 import { Vehicle } from './vehicles/vehicle.js';
+import { BodyDamage, scatterWreck } from './vehicles/damage.js';
 import { Traffic } from './vehicles/traffic.js';
 import { OnFoot } from './vehicles/onFoot.js';
 import { CARS } from './vehicles/catalog.js';
@@ -47,6 +48,12 @@ const SHOWCASE = { x: 556, z: -184, yaw: -0.55 };
 const NEED_SPEED = { lamba: 5, agac: 7, park: 8, bina: 22 };
 /** What is left of your speed once you have. */
 const TOLL = { lamba: 0.94, agac: 0.86, park: 0.76, bina: 0.42 };
+/** And what it costs your own bodywork, as a share of the speed you hit it at. */
+const DENT_TOLL = { lamba: 0.42, agac: 0.55, park: 0.62, bina: 0.38 };
+/** How long the wreck lies there before you are given a car back. */
+const WRECK_TIME = 3.6;
+/** What a wreck asks of the physics: nothing, with the brakes on. */
+const DEAD_INPUT = { steer: 0, throttle: 0, brake: 1, handbrake: true };
 
 class Game {
   constructor() {
@@ -296,6 +303,9 @@ class Game {
     this.audio?.setVehicle(spec);
     this.playerCar = createPlayerCar(spec, colour);
     this.scene.add(this.playerCar.group);
+    // the panels remember the shape they were built with, so they can be bent
+    this.bodyDamage = new BodyDamage(this.playerCar);
+    this._wreckTimer = 0;
 
     this.vehicle = new Vehicle(spec, this.world);
     // what happens when the car meets something that can be knocked down
@@ -311,6 +321,10 @@ class Game {
       })) return false;
       this.vehicle.velocity.multiplyScalar(TOLL[item.kind] ?? 0.9);
       this.vehicle.impact = Math.max(this.vehicle.impact, Math.min(1, speed / 22));
+      // It gave way, so it costs the car less than a wall would — but a
+      // column through the front of the bonnet still leaves the front of the
+      // bonnet somewhere else.
+      this.vehicle.addDent(px, pz, -dx, -dz, speed * (DENT_TOLL[item.kind] ?? 0.5));
       return true;
     };
     if (keepPlace && prev) {
@@ -489,6 +503,10 @@ class Game {
    */
   _interact() {
     if (this.state === 'driving') {
+      if (this.vehicle.dead) {
+        this.hud.showToast('Araç hurda · R ile yenisini al', 1.6);
+        return;
+      }
       if (Math.abs(this.vehicle.speedKmh) > 6) {
         this.hud.showToast('Önce dur', 1.2);
         return;
@@ -856,6 +874,116 @@ class Game {
     this.terrain?.preload(this.vehicle.position.x, this.vehicle.position.z);
   }
 
+  /**
+   * The state of the bodywork, once a frame.
+   *
+   * Dents are pushed in here rather than in the physics step because bending
+   * a panel means walking a vertex buffer, and the solver has no business
+   * knowing what the car looks like. Two a frame is the cap: driving the
+   * length of a wall can raise a dozen contacts in one step and there is
+   * nothing to see in the last ten of them.
+   */
+  _updateDamage(dt) {
+    const v = this.vehicle;
+
+    if (v.dents.length) {
+      if (this.bodyDamage && !v.dead) {
+        for (const d of v.dents.slice(0, 2)) this.bodyDamage.dent(d);
+      }
+      v.dents.length = 0;
+    }
+
+    if (v.dead) {
+      this._wreckTimer -= dt;
+      // the wreck goes on smoking where it stopped
+      this._smokeAcc = (this._smokeAcc ?? 0) + dt;
+      if (this._smokeAcc > 0.08) {
+        this._smokeAcc = 0;
+        this.effects?.emitSmoke(
+          v.position.x + (Math.random() - 0.5) * 1.6,
+          v.position.y + 0.7,
+          v.position.z + (Math.random() - 0.5) * 1.6,
+          (Math.random() - 0.5) * 0.9, 1.6 + Math.random(), (Math.random() - 0.5) * 0.9,
+          2.4, 2.2, [0.16, 0.15, 0.14]
+        );
+      }
+      if (this._wreckTimer <= 0) this._reviveCar();
+      return;
+    }
+
+    if (v.damage >= 1) {
+      this._wreckCar();
+      return;
+    }
+
+    // Past two thirds gone the engine bay starts smoking, which is the only
+    // warning you get that the next wall is the last one.
+    if (v.damage > 0.62) {
+      this._smokeAcc = (this._smokeAcc ?? 0) + dt;
+      const every = 0.34 - (v.damage - 0.62) * 0.6;
+      if (this._smokeAcc > every) {
+        this._smokeAcc = 0;
+        const nose = v.spec.length * 0.42;
+        const grey = 0.5 - (v.damage - 0.62) * 0.9;
+        this.effects?.emitSmoke(
+          v.position.x + Math.sin(v.yaw) * nose + (Math.random() - 0.5) * 0.5,
+          v.position.y + 0.9,
+          v.position.z + Math.cos(v.yaw) * nose + (Math.random() - 0.5) * 0.5,
+          -v.velocity.x * 0.2 + (Math.random() - 0.5) * 0.6,
+          1.4 + Math.random(),
+          -v.velocity.z * 0.2 + (Math.random() - 0.5) * 0.6,
+          1.1, 1.3, [grey, grey * 0.96, grey * 0.92]
+        );
+      }
+    }
+  }
+
+  /** The shell has taken everything it can. */
+  _wreckCar() {
+    const v = this.vehicle;
+    if (v.dead) return;
+    v.dead = true;
+    v.damage = 1;
+    this._wreckTimer = WRECK_TIME;
+    this._smokeAcc = 0;
+
+    // what is left of it goes to the solver, and the car itself stops being
+    scatterWreck(this.rigid, v.spec, this.playerCar.paintMat.color.getHex(),
+      v.position, v.yaw, v.velocity);
+    this.playerCar.group.visible = false;
+    v.velocity.multiplyScalar(0.1);
+
+    this.audio.explode(1);
+    this.rig.addShake(1.35 * this.shakeScale);
+    const p = v.position;
+    this.effects?.blast(p.x, p.y + 0.7, p.z, 1.15);
+    this.hud.showToast('Araç hurdaya çıktı', 2.6);
+  }
+
+  /** A fresh one, straightened out, back on the road. */
+  _reviveCar() {
+    const v = this.vehicle;
+    v.dead = false;
+    v.damage = 0;
+    v.dents.length = 0;
+    this._wreckTimer = 0;
+    this.bodyDamage?.repair();
+    this.playerCar.group.visible = true;
+    this._placeOnRoad(v.position.x, v.position.z, v.yaw);
+    this.rig.snapTo(v);
+    this.hud.showToast('Yeni araç geldi', 2);
+  }
+
+  /** Panel-beats whatever is left of it without waiting for the explosion. */
+  _repairCar() {
+    this.vehicle.damage = 0;
+    this.vehicle.dead = false;
+    this.vehicle.dents.length = 0;
+    this._wreckTimer = 0;
+    this.bodyDamage?.repair();
+    if (this.playerCar) this.playerCar.group.visible = true;
+  }
+
   _districtName() {
     let best = ZONES[0];
     let bestD = Infinity;
@@ -926,10 +1054,17 @@ class Game {
     }
     if (this.state !== 'driving') return;
 
+    // A wreck takes no orders but the one that ends it early
+    if (this.vehicle.dead) {
+      if (input.consume('respawn')) this._reviveCar();
+      return;
+    }
+
     if (input.consume('respawn')) {
+      this._repairCar();
       this._placeOnRoad(this.vehicle.position.x, this.vehicle.position.z, this.vehicle.yaw);
       this.rig.snapTo(this.vehicle);
-      this.hud.showToast('Araç yola alındı', 1.6);
+      this.hud.showToast('Araç yola alındı ve onarıldı', 1.8);
     }
     if (input.consume('teleport')) {
       const p = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
@@ -978,7 +1113,8 @@ class Game {
       const prevImpact = this.vehicle.impact;
       this._crash = 0;
       this._crashKind = null;
-      this.vehicle.update(dt, input);
+      // a wreck steers itself: no throttle, and the brakes locked on
+      this.vehicle.update(dt, this.vehicle.dead ? DEAD_INPUT : input);
       // a car sent flying counts as a crash too, not a bump
       if (this.vehicle.crash > 0) {
         this._crash = Math.max(this._crash, this.vehicle.crash);
@@ -992,6 +1128,7 @@ class Game {
         this.audio.thud(this.vehicle.impact);
         this.rig.addShake(this.vehicle.impact * 0.9 * this.shakeScale);
       }
+      this._updateDamage(dt);
       this.clockTime += dt;
       this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, this.streamBudget);
     } else if (onFoot) {

@@ -88,6 +88,38 @@ export class Hud {
     ctx.strokeStyle = 'rgba(14, 20, 32, 0.72)';
     ctx.stroke();
 
+    // Damage, in the gap at the bottom of the dial the sweep leaves empty.
+    // It fills from the left and turns from amber to red as the shell goes.
+    const dmg = clamp(vehicle.damage ?? 0, 0, 1);
+    const gap0 = START + SWEEP - TAU;      // where the sweep ends, wrapped round
+    const gap1 = START;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, gap0, gap1);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(14, 20, 32, 0.72)';
+    ctx.stroke();
+    if (dmg > 0.015) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, gap0, gap0 + (gap1 - gap0) * dmg);
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = dmg > 0.62 ? '#ff3d2e' : (dmg > 0.3 ? '#ff9a3d' : '#ffd05a');
+      if (dmg > 0.62) {
+        // a wreck in waiting should be hard to miss
+        ctx.shadowColor = 'rgba(255,61,46,0.85)';
+        ctx.shadowBlur = 8 + Math.sin(this._rev * 0.01) * 4;
+      }
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.shadowBlur = 0;
+
+      ctx.font = `700 ${Math.round(R * 0.085)}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = dmg > 0.62 ? 'rgba(255,120,105,0.95)' : 'rgba(214,196,160,0.78)';
+      ctx.fillText('HASAR', cx, cy + R - 15);
+    }
+
     // rev ring
     const revT = clamp((this._rev - 800) / 6400, 0, 1);
     ctx.beginPath();

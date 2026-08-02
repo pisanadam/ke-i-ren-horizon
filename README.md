@@ -3,7 +3,7 @@
 Ankara'da geçen **3D serbest sürüş oyunu**. Tarayıcıda çalışır, hiçbir eklenti
 veya indirme gerektirmez. Keçiören'in tepelerinden Ulus'a, Kızılay'dan
 Çankaya'ya, Anıtkabir'den Sincan'a ve Esenboğa'ya uzanan **10 × 10 km'lik bir
-şehir**; içinde sürebileceğin **10 farklı araç**, caddeleri dolduran **canlı
+şehir**; içinde sürebileceğin **45 farklı araç**, caddeleri dolduran **canlı
 trafik** ve viyadükleri üzerinde gerçekten işleyen **beş hatlı metro** var.
 
 ![tür](https://img.shields.io/badge/tür-serbest%20sürüş-ff8a3d) ![motor](https://img.shields.io/badge/motor-three.js-34d3ff) ![lisans](https://img.shields.io/badge/varlık-%100%20prosedürel-5ce08a)
@@ -104,7 +104,8 @@ yürütülür, sonrası beklenir.
 | `C` | Kamera değiştir (takip, geniş, kaput, tampon, serbest, kuşbakışı) |
 | `V` | Farlar |
 | `H` | Klakson |
-| `R` | Aracı yola geri al |
+| `R` | Aracı yola geri al ve kaportayı onar (hurdaysa yenisini getir) |
+| `E` | Araçtan in / bin |
 | `T` | Saati 3 saat ilerlet |
 | `N` | Haritada rastgele bir noktaya ışınlan |
 | `M` | Haritayı aç / kapat |
@@ -208,9 +209,15 @@ olduğun ekranın üstünde yazar.
 | Polis Aracı | Resmî | Güçlü motor, tepe lambaları |
 | Elektrikli Sedan | Elektrikli | Sessiz, anında tork |
 | Belediye Otobüsü | Toplu taşıma | 10,5 metre, yavaş ama durdurulamaz |
+| Canavar Kamyonet | Canavar | 92 cm tekerler, her yerden geçer |
+| Dehşet Motorlu Kamyon | Canavar | 12 ton, 210 kW, önüne geleni siler |
 
-Her aracın kendi rengi seçilebilir; garajda araç Estergon Kalesi'nin altında
-dönen kamerayla sergilenir.
+Tablo garajdaki **45 aracın** ilk onunu ve iki canavarı gösteriyor; kalanlar
+aile arabalarından hiper otomobillere ve elektriklilere uzanır (tam liste
+`src/vehicles/catalog.js` ve `catalogExtra.js` içindedir).
+
+Her aracın rengi, jantı, motoru ve turbosu garajda değiştirilebilir; araç
+Estergon Kalesi'nin altında dönen kamerayla sergilenir.
 
 ---
 
@@ -226,6 +233,27 @@ tutuş, kaldırıma çıkarken tümsek, çarpışmada itki — hepsi modellenmi�
 gider, kavşaklarda genelde düz devam eder, önündeki araca göre yavaşlar,
 kırmızı ışıkta durur ve çarptığında itilir. Oyuncunun etrafında sürekli
 doğar/silinir, böylece nerede olursan ol cadde dolu görünür.
+
+**Yıkım.** Şehirdeki hiçbir şey kendiliğinden yıkılmaz; kırılması için senin
+çarpman gerekir ve her şeyin bir eşiği vardır: lamba direği 18 km/s, ağaç
+25 km/s, park etmiş araba 29 km/s, bina duvarı 79 km/s. Eşiği geçince nesne
+birleştirilmiş meshten silinir, yerini rijit gövde çözücüsüne bırakır ve
+gerçekten devrilir, savrulur, yuvarlanır. Duvarlar bütün hâlinde yıkılmaz:
+tabandaki 4,4 m'lik şerit 2,2 m'lik hücrelere bölünmüştür, çarptığın yerde
+araba genişliğinde bir delik açılır, üst katlar ayakta kalır ve açılan delikten
+binanın içine girilir — içerisi artık bir kabuktur, ortası boştur. Çarpma sesi
+sertliğe göre değişir (teneke ezilmesi, cam, çeliğin çınlaması), moloz ve toz
+saçılır.
+
+**Aracının hasarı.** Kaportan da nasibini alır: çarptığın panel gerçekten içeri
+göçer. Köşe noktası aracın kendi eksenine çevrilir, o noktanın çevresindeki
+köşeler darbe yönünde bastırılır ve üstüne düşük frekanslı bir gürültü
+eklenerek metal kırışır. Yer değiştirme yalnızca köşenin başlangıç konumuna
+bağlıdır; bu yüzden dikiş yerlerinde üst üste duran ikizler hep birlikte hareket
+eder ve gövde asla yırtılmaz (ölçüldü: en kötü dikiş açıklığı 1,2 × 10⁻⁷ m).
+Göstergedeki **HASAR** çubuğu dolunca — üç şeritte 150 ile duvara, ya da birkaç
+binadan geçerek — araç patlar: alev, is, 18 parça enkaz ve yeni bir araç.
+`R` her an kaportayı düzeltir.
 
 **Gece / gündüz.** Saat sürekli akar. Güneşin açısına göre gökyüzü, sis,
 gölgeler, yıldızlar ve ay değişir; hava kararınca apartman pencereleri yanar,
@@ -266,8 +294,8 @@ src/
 ├── main.js              oyun döngüsü, durumlar, gece/gündüz sürücüsü
 ├── quality.js           masaüstü / telefon kalite kademesi
 ├── textures.js          canvas ile üretilen tüm dokular
-├── effects.js           lastik izi + duman havuzları
-├── audio.js             WebAudio ile sentezlenen motor/lastik/klakson
+├── effects.js           lastik izi, duman ve alev havuzları
+├── audio.js             WebAudio ile sentezlenen motor/lastik/klakson/patlama
 ├── input.js             klavye + gamepad + dokunmatik
 ├── cameraRig.js         6 kamera modu
 ├── util/math.js         yardımcı matematik, deterministik rastgelelik
@@ -276,22 +304,40 @@ src/
 │   ├── heightfield.js   Keçiören tepelerinin yükseklik fonksiyonu
 │   ├── network.js       yol grafiği: kesişimler, kenarlar, kotlar, ışıklar
 │   ├── ground.js        arazi ağı ve zemin yüksekliği sorguları
+│   ├── terrainChunks.js oyuncunun çevresinde örülen ayrıntılı arazi
 │   ├── roads.js         asfalt, kaldırım, bordür, yol çizgileri
-│   ├── buildings.js     apartmanlar, dükkânlar, çatı detayları
+│   ├── ramps.js         yol dolgularını araziye bağlayan şevler
+│   ├── buildings.js     apartmanlar, dükkânlar, çatı detayları, duvar hücreleri
 │   ├── props.js         ağaçlar, lambalar, ışıklar, park hâlindeki araçlar
 │   ├── landmarks.js     Estergon, hastane, cami, stadyum, teleferik…
-│   ├── colliders.js     statik çarpışma ızgarası
+│   ├── metro.js         viyadükler, peronlar, tarifeyle işleyen trenler
+│   ├── colliders.js     statik çarpışma ızgarası, delikler ve kabuklar
+│   ├── breakables.js    kırılan direk, ağaç, araba ve duvarlar
+│   ├── rigid.js         enkaz için rijit gövde çözücüsü
+│   ├── tiles.js         şehri karelere bölen çizim/eleme katmanı
+│   ├── reflections.js   araç yansımaları için ortam sondası
+│   ├── route.js         hedefe yol tarifi
 │   └── skyEnv.js        gökyüzü, güneş, gece
 ├── vehicles/
 │   ├── catalog.js       araç listesi ve sürüş değerleri
+│   ├── catalogExtra.js  ek araçlar (canavar kamyonet, dehşet motorlu kamyon…)
+│   ├── tuning.js        modifiye: renk, jant, motor, turbo
 │   ├── carModel.js      prosedürel araç gövdeleri
 │   ├── vehicle.js       sürüş fiziği
-│   └── traffic.js       yapay zekâ trafiği
+│   ├── damage.js        gövde yamulması ve aracın parçalanması
+│   ├── traffic.js       yapay zekâ trafiği
+│   ├── onFoot.js        araçtan inip yürüme, metroya binme
+│   └── person.js        yaya modeli ve yürüyüş animasyonu
+├── net/
+│   ├── coop.js          oda kurma/katılma ve oyuncu senkronu
+│   ├── rtc.js           WebRTC veri kanalı, yıldız topolojisi
+│   └── signal.js        ntfy üzerinden SDP/ICE takası
 └── ui/
     ├── hud.js           gösterge paneli
     ├── mapPlan.js       bir kez çizilen sokak planı
     ├── minimap.js       köşedeki küçük harita
     ├── mapview.js       tam ekran harita ve hedef işareti
+    ├── settings.js      video ve ses ayarları
     └── menu.js          garaj
 ```
 

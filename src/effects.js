@@ -10,12 +10,15 @@ import { QUALITY } from './quality.js';
 
 const SKID_QUADS = QUALITY.skidQuads;
 const SMOKE_MAX = QUALITY.smokeMax;
+/** Flame is its own, much smaller pool: it is rare and it is short. */
+const FIRE_MAX = Math.max(48, Math.round(SMOKE_MAX * 0.22));
 
 export class Effects {
   constructor(scene) {
     this.scene = scene;
     this._buildSkids();
     this._buildSmoke();
+    this._buildFire();
     this._lastSkid = new Map();
     this.smokeScale = 1;     // 0 turns puffs off entirely
     this.skidsOn = true;
@@ -195,6 +198,118 @@ export class Effects {
     this.smokeHead = 0;
   }
 
+  // ----------------------------------------------------------------- fire
+  /**
+   * Flame, which is not smoke with a different colour on it.
+   *
+   * Dust hides what is behind it; fire adds to it. That is one blend mode
+   * apart and it cannot be done in the same draw call, so a car going up gets
+   * its own small additive pool and a light that lasts a quarter of a second —
+   * without which an explosion at midday is a brown cloud.
+   */
+  _buildFire() {
+    const geo = new THREE.BufferGeometry();
+    this.firePos = new Float32Array(FIRE_MAX * 3);
+    this.fireSize = new Float32Array(FIRE_MAX);
+    this.fireAlpha = new Float32Array(FIRE_MAX);
+    this.fireTintArr = new Float32Array(FIRE_MAX * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(this.firePos, 3));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(this.fireSize, 1));
+    geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.fireAlpha, 1));
+    geo.setAttribute('aTint', new THREE.BufferAttribute(this.fireTintArr, 3));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uMap: { value: softDotTexture() } },
+      vertexShader: `
+        attribute float aSize;
+        attribute float aAlpha;
+        attribute vec3 aTint;
+        varying float vAlpha;
+        varying vec3 vTint;
+        void main() {
+          vAlpha = aAlpha;
+          vTint = aTint;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * (320.0 / max(1.0, -mv.z));
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uMap;
+        varying float vAlpha;
+        varying vec3 vTint;
+        void main() {
+          float a = texture2D(uMap, gl_PointCoord).a * vAlpha;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(vTint * a, a);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    this.fireMesh = new THREE.Points(geo, mat);
+    this.fireMesh.frustumCulled = false;
+    this.fireMesh.renderOrder = 4;
+    this.scene.add(this.fireMesh);
+    this.fireGeo = geo;
+
+    this.fire = [];
+    for (let i = 0; i < FIRE_MAX; i++) {
+      this.fire.push({ life: 0, max: 1, vx: 0, vy: 0, vz: 0, size: 1 });
+    }
+    this.fireHead = 0;
+  }
+
+  emitFire(x, y, z, vx, vy, vz, size, life) {
+    const i = this.fireHead;
+    this.fireHead = (this.fireHead + 1) % FIRE_MAX;
+    const p = this.fire[i];
+    p.life = life;
+    p.max = life;
+    p.vx = vx; p.vy = vy; p.vz = vz;
+    p.size = size;
+    this.firePos[i * 3] = x;
+    this.firePos[i * 3 + 1] = y;
+    this.firePos[i * 3 + 2] = z;
+  }
+
+  /** A car going up: flame, then the dust and the black smoke behind it. */
+  blast(x, y, z, strength = 1) {
+    const s = Math.max(0.4, Math.min(1.6, strength));
+    const n = Math.round(30 * s * this.smokeScale);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 1.5 * s;
+      this.emitFire(
+        x + Math.cos(a) * r, y + Math.random() * 1.2, z + Math.sin(a) * r,
+        Math.cos(a) * (1.5 + Math.random() * 4.5) * s,
+        1.5 + Math.random() * 7 * s,
+        Math.sin(a) * (1.5 + Math.random() * 4.5) * s,
+        (1.5 + Math.random() * 2.6) * s,
+        0.28 + Math.random() * 0.42
+      );
+    }
+    // the core, which stacks on top of the ring and blows out white
+    for (let i = 0; i < Math.round(10 * s * this.smokeScale); i++) {
+      this.emitFire(
+        x + (Math.random() - 0.5) * 0.9, y + 0.3 + Math.random() * 0.8,
+        z + (Math.random() - 0.5) * 0.9,
+        (Math.random() - 0.5) * 2, 2 + Math.random() * 3, (Math.random() - 0.5) * 2,
+        (3.2 + Math.random() * 2) * s,
+        0.34 + Math.random() * 0.3
+      );
+    }
+
+    this.burst(x, y + 0.4, z, 26 * s, {
+      spread: 2.2 * s, lift: 6, size: 2.6, life: 1.1, tint: [0.55, 0.36, 0.2]
+    });
+    this.burst(x, y + 1.4, z, 34 * s, {
+      spread: 3.2 * s, lift: 4.5, size: 3.8, life: 3, tint: [0.14, 0.13, 0.12]
+    });
+  }
+
   emitSmoke(x, y, z, vx, vy, vz, size, life, tint = [0.82, 0.82, 0.8]) {
     const i = this.smokeHead;
     this.smokeHead = (this.smokeHead + 1) % SMOKE_MAX;
@@ -262,5 +377,31 @@ export class Effects {
     this.smokeGeo.attributes.aSize.needsUpdate = true;
     this.smokeGeo.attributes.aAlpha.needsUpdate = true;
     this.smokeGeo.attributes.aTint.needsUpdate = true;
+
+    for (let i = 0; i < FIRE_MAX; i++) {
+      const p = this.fire[i];
+      if (p.life <= 0) {
+        this.fireAlpha[i] = 0;
+        continue;
+      }
+      p.life -= dt;
+      const t = clamp(p.life / p.max, 0, 1);
+      this.firePos[i * 3] += p.vx * dt;
+      this.firePos[i * 3 + 1] += p.vy * dt;
+      this.firePos[i * 3 + 2] += p.vz * dt;
+      p.vy += 2.6 * dt;              // flame rises as it cools
+      p.vx *= 1 - 3.2 * dt;
+      p.vz *= 1 - 3.2 * dt;
+      this.fireSize[i] = p.size * (1 + (1 - t) * 1.6);
+      this.fireAlpha[i] = t;
+      // white hot at the front, dull red by the end of it
+      this.fireTintArr[i * 3] = 1;
+      this.fireTintArr[i * 3 + 1] = 0.24 + t * 0.62;
+      this.fireTintArr[i * 3 + 2] = 0.05 + t * t * 0.45;
+    }
+    this.fireGeo.attributes.position.needsUpdate = true;
+    this.fireGeo.attributes.aSize.needsUpdate = true;
+    this.fireGeo.attributes.aAlpha.needsUpdate = true;
+    this.fireGeo.attributes.aTint.needsUpdate = true;
   }
 }

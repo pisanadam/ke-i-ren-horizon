@@ -35,6 +35,11 @@ export class Vehicle {
     this.impact = 0;
     /** Set when something was actually destroyed, so the sound can differ. */
     this.crash = 0;
+    /** How wrecked the shell is, 0 to 1. At 1 the car comes apart. */
+    this.damage = 0;
+    /** Dents waiting to be pushed into the body, in the car's own frame. */
+    this.dents = [];
+    this.dead = false;
     this.airborne = false;
     this.verticalVel = 0;
     this.groundY = 0;
@@ -58,6 +63,42 @@ export class Vehicle {
     this.airborne = false;
     this.bodyPitch = 0;
     this.bodyRoll = 0;
+    // Damage is deliberately not cleared here. Being put back on the road or
+    // teleported across town moves the car; it does not straighten it out.
+    this.dents.length = 0;
+  }
+
+  /**
+   * Records a blow to the shell.
+   *
+   * The panels are modelled in the car's own frame, so the world-space contact
+   * point and the direction the hit came from are rotated into it here — the
+   * body has no idea which way the car happens to be pointing.
+   *
+   * @param {number} px @param {number} pz where the car was touched, in world
+   * @param {number} nx @param {number} nz surface normal pointing at the car
+   * @param {number} severity closing speed in m/s
+   */
+  addDent(px, pz, nx, nz, severity) {
+    // A shunt costs you paint before it costs you the car. The curve is steep
+    // on purpose: town speeds mark it, and a proper motorway hit finishes it.
+    const over = severity - 4;
+    if (over > 0) {
+      this.damage = Math.min(1, this.damage + Math.pow(over / 44, 1.35));
+    }
+    if (severity < 5.5 || this.dents.length >= 8) return;
+    const rx = px - this.position.x;
+    const rz = pz - this.position.z;
+    // The panel is pushed the way the obstacle shoves, which is the way the
+    // normal points and the opposite of the way the car was going: drive into
+    // a wall and the nose folds back into the car, not out through the front.
+    this.dents.push({
+      x: -(rx * this._right.x + rz * this._right.z),
+      z: rx * this._fwd.x + rz * this._fwd.z,
+      dx: -(nx * this._right.x + nz * this._right.z),
+      dz: nx * this._fwd.x + nz * this._fwd.z,
+      mag: severity
+    });
   }
 
   get speed() {
@@ -263,6 +304,8 @@ export class Vehicle {
         // Spread over the speeds people actually drive at, so a kerb
         // scrape and a wall at a hundred do not sound the same.
         this.impact = Math.max(this.impact, Math.min(1, -vn / 20));
+        // and the panel that took it keeps the shape of what it hit
+        this.addDent(hit.x - hit.nx * radius, hit.z - hit.nz * radius, hit.nx, hit.nz, -vn);
       }
     }
 
@@ -286,6 +329,9 @@ export class Vehicle {
       if (this.position.y <= groundY) {
         this.position.y = groundY;
         this.impact = Math.max(this.impact, Math.min(1, -this.verticalVel / 14));
+        // landing hard costs the suspension and the floor, not a panel
+        const drop = -this.verticalVel - 11;
+        if (drop > 0) this.damage = Math.min(1, this.damage + Math.pow(drop / 26, 1.4));
         this.verticalVel = 0;
         this.airborne = false;
       }

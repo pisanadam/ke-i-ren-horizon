@@ -76,7 +76,23 @@ export class ColliderGrid {
           let nlz = 0;
           let depth = 0;
 
-          if (ex < 0 && ez < 0) {
+          if (ex < 0 && ez < 0 && b.shell !== undefined) {
+            /**
+             * A building with a hole in it is a shell, not a block.
+             *
+             * The footprint is one box, so before this the inside of a
+             * breached building was as solid as the outside: you punched a
+             * hole, drove into it, and stopped two metres later against
+             * nothing. Past the thickness of the walls there is now a room,
+             * and only the band around the edge still pushes back — inwards,
+             * because from in here the way out is the middle.
+             */
+            const keep = b.shell + radius;
+            if (-ex > keep && -ez > keep) continue;
+            if (ex > ez) { nlx = -(Math.sign(lx) || 1); depth = keep + ex; }
+            else { nlz = -(Math.sign(lz) || 1); depth = keep + ez; }
+            if (depth <= 0) continue;
+          } else if (ex < 0 && ez < 0) {
             // centre is inside: exit through the nearest face
             if (ex > ez) { nlx = Math.sign(lx) || 1; depth = -ex + radius; }
             else { nlz = Math.sign(lz) || 1; depth = -ez + radius; }

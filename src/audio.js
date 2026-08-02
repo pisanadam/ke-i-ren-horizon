@@ -587,6 +587,89 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * The car itself going up.
+   *
+   * Three things happening at once: the crack of the ignition, the body of the
+   * blast dropping away underneath it, and a long tail of wreckage coming back
+   * down. Nothing here is a sample — it is the same noise buffer the crashes
+   * use, opened right up and then shut down over a second and a half.
+   */
+  explode(strength = 1) {
+    if (!this.started) return;
+    const s = Math.min(1, Math.max(0.5, strength));
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // ---- the crack: wide open for a few hundredths, then gone
+    const crack = ctx.createBufferSource();
+    crack.buffer = this.noiseBuffer;
+    crack.playbackRate.value = 1.6 + Math.random() * 0.5;
+    const ch = ctx.createBiquadFilter();
+    ch.type = 'highpass';
+    ch.frequency.setValueAtTime(1400, now);
+    ch.frequency.exponentialRampToValueAtTime(320, now + 0.22);
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0, now);
+    cg.gain.linearRampToValueAtTime(0.5 * s, now + 0.008);
+    cg.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    crack.connect(ch);
+    ch.connect(cg);
+    cg.connect(this.master);
+    crack.start(now, Math.random(), 0.5);
+
+    // ---- the body of the blast: low noise falling away
+    const body = ctx.createBufferSource();
+    body.buffer = this.noiseBuffer;
+    body.playbackRate.value = 0.28 + Math.random() * 0.14;
+    const bf = ctx.createBiquadFilter();
+    bf.type = 'lowpass';
+    bf.frequency.setValueAtTime(2200, now);
+    bf.frequency.exponentialRampToValueAtTime(110, now + 1.1);
+    bf.Q.value = 1.6;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0, now);
+    bg.gain.linearRampToValueAtTime(0.62 * s, now + 0.02);
+    bg.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
+    body.connect(bf);
+    bf.connect(bg);
+    bg.connect(this.master);
+    body.start(now, Math.random(), 1.6);
+
+    // ---- the thump under it, which is most of what you actually feel
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(96, now);
+    sub.frequency.exponentialRampToValueAtTime(26, now + 0.75);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.55 * s, now);
+    sg.gain.exponentialRampToValueAtTime(0.0001, now + 1.0);
+    sub.connect(sg);
+    sg.connect(this.master);
+    sub.start(now);
+    sub.stop(now + 1.2);
+
+    // ---- wreckage landing, spread over the next second and a half
+    for (let i = 0; i < 7; i++) {
+      const at = now + 0.35 + Math.random() * 1.2;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.playbackRate.value = 0.7 + Math.random() * 1.9;
+      const f = ctx.createBiquadFilter();
+      f.type = Math.random() < 0.45 ? 'bandpass' : 'lowpass';
+      f.frequency.value = 300 + Math.random() * 2600;
+      f.Q.value = 3;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(s * 0.16 * (0.4 + Math.random()), at + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.2 + Math.random() * 0.35);
+      src.connect(f);
+      f.connect(g);
+      g.connect(this.master);
+      src.start(at, Math.random(), 0.6);
+    }
+  }
+
   blip(freq = 660, len = 0.08, vol = 0.08) {
     if (!this.started) return;
     const ctx = this.ctx;
