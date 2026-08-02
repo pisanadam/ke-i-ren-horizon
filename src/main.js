@@ -42,6 +42,11 @@ import { QUALITY, IS_TOUCH } from './quality.js';
 // Showroom spot: on the ramp below Estergon Kalesi, castle in the backdrop.
 const SHOWCASE = { x: 556, z: -184, yaw: -0.55 };
 
+/** How fast you have to be going, in m/s, to take each thing out. */
+const NEED_SPEED = { lamba: 5, agac: 7, park: 8, bina: 22 };
+/** What is left of your speed once you have. */
+const TOLL = { lamba: 0.94, agac: 0.86, park: 0.76, bina: 0.42 };
+
 class Game {
   constructor() {
     this.state = 'loading';
@@ -57,6 +62,9 @@ class Game {
     this.shakeScale = 1;
     this.useMph = false;
     this._ambientAcc = 0;
+    // How long the world streamer may spend building ground each frame.
+    // More cores means more headroom for it without costing frame rate.
+    this.streamBudget = Math.max(3, Math.min(10, (navigator.hardwareConcurrency || 4)));
 
     installTouchGuards();
 
@@ -152,6 +160,17 @@ class Game {
     this.rigid = new RigidWorld(this.ground, this.scene);
     this.breakables = new Breakables(this.rigid);
     for (const b of props.breakables) this.breakables.add(b);
+    for (const b of buildings.breakables) this.breakables.add(b);
+    // With a wall missing you look straight through the shell, so the facades
+    // stop culling their back faces the first time one is opened up.
+    this.breakables.onOpened = () => {
+      if (this._facadesOpen) return;
+      this._facadesOpen = true;
+      for (const m of buildings.materials || []) {
+        m.side = THREE.DoubleSide;
+        m.needsUpdate = true;
+      }
+    };
     this.breakables.onBreak = (item, blow) => {
       const hard = Math.min(1, (blow?.speed ?? 8) / 28);
       // one crash a frame however many things went down at once, or ploughing
@@ -256,12 +275,12 @@ class Game {
     this.vehicle.onFrail = (box, speed, dx, dz) => {
       if (!box.brk || !this.breakables) return false;
       const item = box.brk;
+      // What it takes to go through, and what it costs you. A lamp column is
+      // barely there; a wall is a wall, and needs a proper run at it.
+      const need = NEED_SPEED[item.kind] ?? 5;
+      if (speed < need) return false;
       if (!this.breakables.smash(item, { speed, vx: dx * speed, vz: dz * speed })) return false;
-      // Going through it is not free. A lamp column barely registers; a parked
-      // car takes a quarter of the speed out of you, which is what stops a
-      // street of them being a free run.
-      const toll = item.kind === 'park' ? 0.76 : 0.94;
-      this.vehicle.velocity.multiplyScalar(toll);
+      this.vehicle.velocity.multiplyScalar(TOLL[item.kind] ?? 0.9);
       this.vehicle.impact = Math.max(this.vehicle.impact, Math.min(1, speed / 22));
       return true;
     };
@@ -945,12 +964,12 @@ class Game {
         this.rig.addShake(this.vehicle.impact * 0.9 * this.shakeScale);
       }
       this.clockTime += dt;
-      this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, 6);
+      this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, this.streamBudget);
     } else if (onFoot) {
       input.cameraYaw = this.rig.orbitYaw ?? this.rig.yaw;
       this.onFoot.update(dt, input);
       this.clockTime += dt;
-      this.terrain.update(this.onFoot.position.x, this.onFoot.position.z, 6);
+      this.terrain.update(this.onFoot.position.x, this.onFoot.position.z, this.streamBudget);
       // the parked car settles on its springs while you are away from it
       this.vehicle.velocity.multiplyScalar(Math.exp(-6 * dt));
       this.vehicle.position.y = damp(

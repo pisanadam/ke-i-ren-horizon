@@ -69,24 +69,71 @@ export class Breakables {
    */
   smash(item, blow) {
     if (!item || item.gone) return false;
+
+    // A building does not vanish — the wall you drove at does. Each face of a
+    // block is its own quad, so the one facing the impact can be taken out on
+    // its own, leaving a hole to drive through and the rest standing.
+    if (item.walls) return this._breach(item, blow);
+
     item.gone = true;
     this.broken++;
     if (item.box) item.box.solid = false;
 
-    this._hide(item);
+    this._hide(item, item.start, item.count);
     this._hideInstances(item);
     this._scatter(item, blow);
     this.onBreak(item, blow);
     return true;
   }
 
-  /** Collapses the item's vertices onto its own base, where nothing can see them. */
-  _hide(item) {
-    if (!item.mesh || !item.count) return;
-    const attr = item.mesh.geometry.attributes.position;
+  /**
+   * Takes the struck wall out of a building.
+   *
+   * Which wall it is comes from the direction of travel in the building's own
+   * frame: whichever face the car is heading into. The whole footprint stops
+   * being solid at that point, so what is left is a shell you can drive into.
+   */
+  _breach(item, blow) {
+    const yaw = item.rot ?? 0;
+    const vx = blow?.vx ?? 0;
+    const vz = blow?.vz ?? 0;
+    // into the building's local axes
+    const lx = vx * Math.cos(yaw) - vz * Math.sin(yaw);
+    const lz = vx * Math.sin(yaw) + vz * Math.cos(yaw);
+    // wallBox lays the faces down in this order
+    const face = Math.abs(lz) > Math.abs(lx)
+      ? (lz > 0 ? 1 : 0)          // heading +Z hits the -Z wall, and the reverse
+      : (lx > 0 ? 3 : 2);
+
+    const already = item.gone === true;
+    for (const w of item.walls) {
+      if (w.done) continue;
+      if (w.face !== face) continue;
+      this._hide(w.mesh ?? item.mesh, w.start, w.count, item);
+      w.done = true;
+    }
+    if (item.box) item.box.solid = false;
+    if (!already) {
+      item.gone = true;
+      this.broken++;
+      // Once a wall is missing you can see the inside of the others, and a
+      // single-sided shell would look like an open box with no far wall.
+      this.onOpened?.(item);
+      this._scatter(item, blow);
+      this.onBreak(item, blow);
+    }
+    return true;
+  }
+
+  /** Collapses a run of vertices onto one point, where nothing can see them. */
+  _hide(meshOrItem, start, count, owner) {
+    const item = owner ?? meshOrItem;
+    const mesh = owner ? meshOrItem : meshOrItem.mesh;
+    if (!mesh || !count) return;
+    const attr = mesh.geometry.attributes.position;
     const arr = attr.array;
     const base = item.y ?? 0;
-    for (let i = item.start; i < item.start + item.count; i++) {
+    for (let i = start; i < start + count; i++) {
       arr[i * 3] = item.x;
       arr[i * 3 + 1] = base;
       arr[i * 3 + 2] = item.z;
@@ -94,7 +141,7 @@ export class Breakables {
     // only the touched slice goes back to the GPU
     if (attr.addUpdateRange) {
       attr.clearUpdateRanges?.();
-      attr.addUpdateRange(item.start * 3, item.count * 3);
+      attr.addUpdateRange(start * 3, count * 3);
     }
     attr.needsUpdate = true;
   }
@@ -161,7 +208,58 @@ export class Breakables {
 }
 
 function makePieces(item) {
-  return item.kind === 'park' ? carPieces(item) : columnPieces(item);
+  if (item.kind === 'park') return carPieces(item);
+  if (item.kind === 'agac') return treePieces(item);
+  if (item.kind === 'bina') return wallPieces(item);
+  return columnPieces(item);
+}
+
+/** A tree: the trunk snaps, the crown comes down in pieces. */
+export function treePieces(item) {
+  const s = item.scale ?? 1;
+  const pieces = [];
+  const trunkH = 3.0 * s;
+  for (let i = 0; i < 2; i++) {
+    pieces.push({
+      y: item.y + trunkH * (0.25 + i * 0.5),
+      hx: 0.2 * s, hy: trunkH * 0.24, hz: 0.2 * s,
+      mass: 90, colour: 0x5c4632, spread: 0.4, restitution: 0.08
+    });
+  }
+  const leaf = item.leaf ?? 0x4f7a37;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    pieces.push({
+      y: item.y + (3.6 + Math.random() * 0.9) * s,
+      dx: Math.cos(a) * 1.1 * s, dz: Math.sin(a) * 1.1 * s,
+      hx: 0.85 * s, hy: 0.62 * s, hz: 0.85 * s,
+      mass: 40, colour: leaf, spread: 1.1, restitution: 0.05, friction: 0.9
+    });
+  }
+  return pieces;
+}
+
+/** Masonry off a breached wall. */
+export function wallPieces(item) {
+  const pieces = [];
+  const n = 7;
+  const span = Math.max(2, item.wallW ?? 8);
+  for (let i = 0; i < n; i++) {
+    pieces.push({
+      y: item.y + 0.6 + Math.random() * 3.2,
+      dx: (Math.random() - 0.5) * span * 0.8,
+      dz: (item.wallZ ?? 0) * 0.9,
+      hx: 0.35 + Math.random() * 0.5,
+      hy: 0.22 + Math.random() * 0.3,
+      hz: 0.3 + Math.random() * 0.45,
+      mass: 120 + Math.random() * 180,
+      colour: item.colour ?? 0xb9b3a6,
+      spread: 1.2,
+      restitution: 0.08,
+      friction: 0.85
+    });
+  }
+  return pieces;
 }
 
 /** The pieces a lamp or signal column breaks into. */

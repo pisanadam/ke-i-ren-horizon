@@ -69,6 +69,17 @@ function colouredGeo(geo, colour) {
  */
 export function buildBuildings(network, ground, colliders) {
   const rng = makeRng(776655);
+  // Where every building's walls end up inside their merged mesh. `wallBox`
+  // lays down four quads of four vertices in a fixed order, so a single face
+  // can be found and taken out later without touching anything else.
+  const breakables = [];
+  const verts = {};
+  const track = (bucket, list, geo) => {
+    const start = verts[bucket] ?? 0;
+    list.push(geo);
+    verts[bucket] = start + geo.attributes.position.count;
+    return start;
+  };
   const group = new THREE.Group();
   group.name = 'buildings';
 
@@ -216,7 +227,10 @@ export function buildBuildings(network, ground, colliders) {
           const key = randPick(rng, FACADE_KEYS);
           const body = wallBox(w * 0.7, hh, depth * 0.72, TEX_W, TEX_H);
           body.applyMatrix4(mtx);
-          facadeGeos[key].push(body);
+          const bStart = track(key, facadeGeos[key], body);
+          const houseWalls = [0, 1, 2, 3].map((f) => ({
+            face: f, start: bStart + f * 4, count: 4, bucket: key
+          }));
 
           // pitched roof
           const roofH = randRange(rng, 1.6, 2.8);
@@ -227,7 +241,12 @@ export function buildBuildings(network, ground, colliders) {
           roof.applyMatrix4(mtx);
           detailGeos.push(colouredGeo(roof, rng() > 0.4 ? 0x9a4a35 : 0x7a5647));
 
-          colliders.add(cx, cz, (w * 0.7) / 2, (depth * 0.72) / 2, rot);
+          breakables.push({
+            kind: 'bina', x: cx, y: gy + hh * 0.35, z: cz, rot,
+            height: hh, wallW: w * 0.7, wallZ: 0, colour: 0xc2bcae,
+            walls: houseWalls, bucket: key,
+            box: colliders.add(cx, cz, (w * 0.7) / 2, (depth * 0.72) / 2, rot)
+          });
           remember(cx, cz, Math.max(w, depth) * 0.52);
           placed.push({ x: cx, z: cz, w: w * 0.7, d: depth * 0.72, h: hh, rot });
           count++;
@@ -251,10 +270,14 @@ export function buildBuildings(network, ground, colliders) {
         const wSnap = Math.max(BAY * 3, Math.round(w / BAY) * BAY);
         const dSnap = Math.max(BAY * 3, Math.round(depth / BAY) * BAY);
 
+        const blockWalls = [];
         if (hasShops) {
           const shop = wallBox(wSnap + 0.7, SHOP_H, dSnap + 0.7, SHOP_TEX_W, SHOP_H);
           shop.applyMatrix4(mtx);
-          shopGeos.push(shop);
+          const sStart = track('shop', shopGeos, shop);
+          for (let f = 0; f < 4; f++) {
+            blockWalls.push({ face: f, start: sStart + f * 4, count: 4, bucket: 'shop' });
+          }
           // shop canopy
           const canopy = new THREE.BoxGeometry(wSnap + 2.4, 0.28, dSnap + 2.4);
           canopy.translate(0, SHOP_H + 0.14, 0);
@@ -266,7 +289,10 @@ export function buildBuildings(network, ground, colliders) {
         const body = wallBox(wSnap, bodyH, dSnap, TEX_W, TEX_H, rng() > 0.5 ? 0 : 0.5);
         body.translate(0, baseY, 0);
         body.applyMatrix4(mtx);
-        facadeGeos[key].push(body);
+        const bStart = track(key, facadeGeos[key], body);
+        for (let f = 0; f < 4; f++) {
+          blockWalls.push({ face: f, start: bStart + f * 4, count: 4, bucket: key });
+        }
 
         // roof slab
         const slab = new THREE.BoxGeometry(wSnap + 0.5, 0.4, dSnap + 0.5);
@@ -325,7 +351,12 @@ export function buildBuildings(network, ground, colliders) {
           detailGeos.push(colouredGeo(g, 0x1d2a46));
         }
 
-        colliders.add(cx, cz, wSnap / 2, dSnap / 2, rot);
+        breakables.push({
+          kind: 'bina', x: cx, y: gy + 1.4, z: cz, rot,
+          height: baseY + bodyH, wallW: wSnap, wallZ: 0, colour: 0xb9b3a6,
+          walls: blockWalls,
+          box: colliders.add(cx, cz, wSnap / 2, dSnap / 2, rot)
+        });
         remember(cx, cz, Math.max(wSnap, dSnap) * 0.52);
         placed.push({ x: cx, z: cz, w: wSnap, d: dSnap, h: baseY + bodyH, rot });
         count++;
@@ -350,6 +381,7 @@ export function buildBuildings(network, ground, colliders) {
     return mesh;
   };
 
+  const meshes = {};
   const facadeMats = [];
   FACADE_KEYS.forEach((key, i) => {
     const tex = facadeTexture(key, i);
@@ -362,7 +394,7 @@ export function buildBuildings(network, ground, colliders) {
       metalness: 0.02
     });
     facadeMats.push(mat);
-    addMerged(facadeGeos[key], mat, `facade-${key}`);
+    meshes[key] = addMerged(facadeGeos[key], mat, `facade-${key}`);
   });
 
   const shopTex = shopTexture(2);
@@ -373,7 +405,7 @@ export function buildBuildings(network, ground, colliders) {
     roughness: 0.75,
     metalness: 0.05
   });
-  addMerged(shopGeos, shopMat, 'shops');
+  meshes.shop = addMerged(shopGeos, shopMat, 'shops');
 
   addMerged(
     roofGeos,
@@ -386,5 +418,19 @@ export function buildBuildings(network, ground, colliders) {
     'roof-details'
   );
 
-  return { group, count, nightMaterials: [...facadeMats, shopMat], placed };
+  // hand each wall the mesh it actually lives in
+  for (const b of breakables) {
+    b.mesh = meshes[b.bucket] ?? null;
+    for (const w of b.walls) w.mesh = meshes[w.bucket] ?? null;
+    if (!b.mesh) b.mesh = b.walls[0]?.mesh ?? null;
+  }
+
+  return {
+    group,
+    count,
+    nightMaterials: [...facadeMats, shopMat],
+    materials: [...facadeMats, shopMat],
+    breakables,
+    placed
+  };
 }

@@ -563,7 +563,8 @@ export class AudioEngine {
 
     const ctx = this.ctx;
     const now = ctx.currentTime;
-    const metal = kind !== 'park';
+    // steel rings, everything else is a dull collapse
+    const metal = kind === 'lamba';
 
     // the pieces landing, a beat behind the hit
     for (let i = 0; i < (metal ? 3 : 4); i++) {

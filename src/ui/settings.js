@@ -66,6 +66,17 @@ const DEFS = [
     note: 'Arkaya bakan yüzeyler çizilmez. Agresif, çift yüzlü yüzeyleri de teke indirir.'
   },
   {
+    tab: 'video', key: 'streamBudget', label: 'Yükleme iş payı', live: true,
+    values: [
+      { v: 2, t: 'Çok az' }, { v: 4, t: 'Az' }, { v: 6, t: 'Normal' },
+      { v: 10, t: 'Çok' }, { v: 16, t: 'Aşırı' }
+    ],
+    def: () => Math.max(3, Math.min(10, (navigator.hardwareConcurrency || 4))),
+    note: 'Zemin, görüş mesafesi kadar parça parça örülür. Bu değer her karede ' +
+      'buna en fazla kaç milisaniye ayrılacağını söyler: yüksek değer daha hızlı ' +
+      'yüklenir ama kare hızını takabilir.'
+  },
+  {
     tab: 'video', key: 'fog', label: 'Sis mesafesi', live: true,
     values: [{ v: 0.6, t: 'Yakın' }, { v: 1, t: 'Normal' }, { v: 1.5, t: 'Uzak' }, { v: 2.4, t: 'Kapalı gibi' }],
     def: () => 1
@@ -163,6 +174,29 @@ export class Settings {
   }
 
   get(key) { return this.values[key]; }
+
+  /**
+   * What the game is actually running on.
+   *
+   * Everything is drawn by the GPU already — that is what WebGL is — but there
+   * is no way to see that from inside the game, so the adapter name goes on the
+   * screen. The core count is there because it is what the streaming budget is
+   * sized from; the simulation itself is one thread, as all JavaScript is.
+   */
+  _showHardware() {
+    const el = document.getElementById('settings-hw');
+    if (!el) return;
+    if (!this._hw) {
+      let gpu = 'bilinmiyor';
+      try {
+        const gl = this.game.renderer.getContext();
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        gpu = (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || gpu;
+      } catch { /* eklenti yok */ }
+      this._hw = { gpu, cores: navigator.hardwareConcurrency || '?' };
+    }
+    el.textContent = `Ekran kartı: ${this._hw.gpu} · ${this._hw.cores} çekirdek`;
+  }
 
   _load() {
     try {
@@ -263,6 +297,7 @@ export class Settings {
     if (g.skyEnv) g.skyEnv.setShadowQuality?.(v.shadows);
 
     if (g.terrain) g.terrain.radius = v.viewDistance;
+    g.streamBudget = v.streamBudget;
     if (g.skyEnv) g.skyEnv.fogScale = v.fog;
 
     if (g.reflections) {
@@ -289,6 +324,7 @@ export class Settings {
     if (g.effects) g.effects.setLevels?.(v.particles, v.skidMarks);
 
     document.getElementById('perf')?.classList.toggle('hidden', !v.fps);
+    this._showHardware();
     g.clockScale = v.clockSpeed;
     g.shakeScale = v.camShake;
     g.useMph = !!v.units;

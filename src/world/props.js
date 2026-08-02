@@ -499,6 +499,15 @@ export function buildProps(network, ground, colliders) {
     leaf.setHex(randPick(rng, leafPalette));
     leaf.offsetHSL(0, randRange(rng, -0.06, 0.06), randRange(rng, -0.05, 0.05));
     canopyMesh.setColorAt(i, leaf);
+    // A tree you can drive through is not a tree. Each one gets a trunk-sized
+    // collider and goes on the breakable list, so hitting it at speed snaps it
+    // instead of passing through as if it were a poster.
+    breakables.push({
+      kind: 'agac', x: t.x, y: t.y, z: t.z, height: 3.2 * t.s, scale: t.s,
+      leaf: leaf.getHex(),
+      instances: [{ mesh: trunkMesh, index: i }, { mesh: canopyMesh, index: i }],
+      box: colliders.add(t.x, t.z, 0.34 * t.s, 0.34 * t.s, 0)
+    });
   });
   trunkMesh.instanceMatrix.needsUpdate = true;
   canopyMesh.instanceMatrix.needsUpdate = true;
@@ -578,9 +587,11 @@ export function buildProps(network, ground, colliders) {
   const pedestrians = createPedestrians(network, rng);
   group.add(pedestrians.mesh);
 
-  // the instanced bits that have to vanish along with their column
+  // The instanced bits that have to vanish along with their column. Trees
+  // filled theirs in as they were placed, so this must add to the list rather
+  // than replace it — clearing it left every felled tree still standing.
   for (const b of breakables) {
-    b.instances = [];
+    if (!b.instances) b.instances = [];
     if (b.lampIndex !== undefined) {
       b.instances.push({ mesh: headMesh, index: b.lampIndex });
       b.instances.push({ mesh: poolMesh, index: b.lampIndex });

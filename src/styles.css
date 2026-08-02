@@ -860,6 +860,14 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
 .coop-manual textarea:focus { outline: 1px solid var(--accent-2); }
 .coop-manual button { align-self: flex-start; }
 
+.settings-hw {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
 /* co-op oyuncu sayısı rozeti */
 #coop-badge {
   display: none;

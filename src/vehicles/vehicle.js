@@ -218,8 +218,18 @@ export class Vehicle {
 
     // ----------------------------------------------------------- collisions
     this.impact = Math.max(0, this.impact - dt * 3);
-    const radius = spec.width * 0.48;
-    const samples = [0.32, 0, -0.32];
+    /**
+     * The car's footprint, as circles along its centre line.
+     *
+     * Three fat circles left the nose and the tail sticking out past the
+     * outermost one, so a lamp post or a tree trunk ended up buried in the
+     * bonnet before anything stopped the car. Five circles, tapering towards
+     * the ends the way the body does, follow the actual outline: the front
+     * one now reaches the bumper instead of stopping level with the wheels.
+     */
+    const samples = [
+      [0.44, 0.33], [0.24, 0.44], [0, 0.48], [-0.24, 0.44], [-0.44, 0.33]
+    ];
 
     /**
      * Something breakable is in the way. If the car is going fast enough to
@@ -234,7 +244,8 @@ export class Vehicle {
       return this.onFrail(box, sp, this.velocity.x / sp, this.velocity.z / sp);
     };
 
-    for (const s of samples) {
+    for (const [s, rScale] of samples) {
+      const radius = spec.width * rScale;
       const sx = this.position.x + this._fwd.x * spec.length * s;
       const sz = this.position.z + this._fwd.z * spec.length * s;
       const hit = colliders.resolveCircle(sx, sz, radius, onFrail);
