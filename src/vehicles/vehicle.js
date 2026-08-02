@@ -237,11 +237,12 @@ export class Vehicle {
      * for this query, so the car ploughs on through instead of bouncing off
      * a lamp post it just sheared in half.
      */
-    const onFrail = (box) => {
+    const onFrail = (box, px, pz) => {
       if (!this.onFrail) return false;
       const sp = this.speed;
       if (sp < 5) return false;                 // a crawl just leans on it
-      return this.onFrail(box, sp, this.velocity.x / sp, this.velocity.z / sp);
+      // the contact point matters: it is where the hole gets punched
+      return this.onFrail(box, sp, this.velocity.x / sp, this.velocity.z / sp, px, pz);
     };
 
     for (const [s, rScale] of samples) {

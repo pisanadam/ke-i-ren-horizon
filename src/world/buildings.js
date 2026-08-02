@@ -13,7 +13,27 @@ const TEX_H = FLOOR * 4;
 const SHOP_H = 4.2;
 const SHOP_TEX_W = 24;
 
-/** Four side walls of a box, UV-mapped so the facade texture tiles per floor. */
+/** How tall the knockable band at the foot of a wall is, and how wide a cell. */
+const BAND_H = 4.4;
+const CELL_W = 2.2;
+
+/**
+ * Four side walls of a box, UV-mapped so the facade texture tiles per floor.
+ *
+ * The bottom four and a half metres of each wall — everything a car can
+ * physically reach — is laid out as a grid of small quads instead of one big
+ * one. That is what makes a hole possible: driving into a wall takes out the
+ * two-by-two block of cells you hit and leaves the rest of the building
+ * standing. Above the band the wall is a single quad, because nothing up
+ * there is ever going to be hit by a car.
+ *
+ * The whole city's facades come to about thirty thousand triangles, so
+ * splitting the reachable strip costs very little, and the tiling means only
+ * the few blocks around you are ever drawn.
+ *
+ * The layout is recorded on `geo.userData.walls` so a breach can find the
+ * exact vertices of one cell later.
+ */
 function wallBox(w, h, d, texW, texH, vOffset = 0) {
   const hw = w / 2;
   const hd = d / 2;
@@ -28,28 +48,66 @@ function wallBox(w, h, d, texW, texH, vOffset = 0) {
   const nor = [];
   const idx = [];
 
-  const quad = (a, b, c, dd, n, u1, vTop, vBot) => {
+  /** One quad, from corners given anticlockwise seen from outside. */
+  const quad = (a, b, c, dd, n, uA, uB, vBot, vTop) => {
     const base = pos.length / 3;
     pos.push(...a, ...b, ...c, ...dd);
     nor.push(...n, ...n, ...n, ...n);
-    uv.push(0, vBot, u1, vBot, u1, vTop, 0, vTop);
+    uv.push(uA, vBot, uB, vBot, uB, vTop, uA, vTop);
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    return base;
   };
 
-  // +Z
-  quad([-hw, 0, hd], [hw, 0, hd], [hw, h, hd], [-hw, h, hd], [0, 0, 1], uW, v1, v0);
-  // -Z
-  quad([hw, 0, -hd], [-hw, 0, -hd], [-hw, h, -hd], [hw, h, -hd], [0, 0, -1], uW, v1, v0);
-  // +X
-  quad([hw, 0, hd], [hw, 0, -hd], [hw, h, -hd], [hw, h, hd], [1, 0, 0], uD, v1, v0);
-  // -X
-  quad([-hw, 0, -hd], [-hw, 0, hd], [-hw, h, hd], [-hw, h, -hd], [-1, 0, 0], uD, v1, v0);
+  const bandH = Math.min(h, BAND_H);
+  const rows = h > 1.2 ? 2 : 1;
+  const walls = [];
+
+  /**
+   * @param {(t:number, y:number)=>number[]} at point on the wall, `t` running
+   *   0..1 along it in the direction the texture runs
+   */
+  const face = (index, n, uSpan, at) => {
+    const cols = Math.max(1, Math.round(uSpan * texW / CELL_W));
+    const rec = { face: index, cols, rows, bandH, cells: [], upper: null };
+
+    // the reachable band, bottom row first
+    for (let r = 0; r < rows; r++) {
+      const y0 = (bandH * r) / rows;
+      const y1 = (bandH * (r + 1)) / rows;
+      for (let c = 0; c < cols; c++) {
+        const t0 = c / cols;
+        const t1 = (c + 1) / cols;
+        const start = quad(
+          at(t0, y0), at(t1, y0), at(t1, y1), at(t0, y1), n,
+          t0 * uSpan, t1 * uSpan,
+          v0 + (y0 / h) * (v1 - v0), v0 + (y1 / h) * (v1 - v0)
+        );
+        rec.cells.push(start);
+      }
+    }
+
+    // everything above it, in one piece
+    if (h > bandH + 0.05) {
+      rec.upper = quad(
+        at(0, bandH), at(1, bandH), at(1, h), at(0, h), n,
+        0, uSpan,
+        v0 + (bandH / h) * (v1 - v0), v1
+      );
+    }
+    walls.push(rec);
+  };
+
+  face(0, [0, 0, 1], uW, (t, y) => [-hw + t * w, y, hd]);
+  face(1, [0, 0, -1], uW, (t, y) => [hw - t * w, y, -hd]);
+  face(2, [1, 0, 0], uD, (t, y) => [hw, y, hd - t * d]);
+  face(3, [-1, 0, 0], uD, (t, y) => [-hw, y, -hd + t * d]);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
+  geo.userData.walls = walls;
   return geo;
 }
 
@@ -227,8 +285,8 @@ export function buildBuildings(network, ground, colliders) {
           const body = wallBox(w * 0.7, hh, depth * 0.72, TEX_W, TEX_H);
           body.applyMatrix4(mtx);
           const bIdx = track(key, facadeGeos[key], body);
-          const houseWalls = [0, 1, 2, 3].map((f) => ({
-            face: f, geoIndex: bIdx, offset: f * 4, count: 4, bucket: key
+          const houseWalls = body.userData.walls.map((rec) => ({
+            ...rec, geoIndex: bIdx, bucket: key
           }));
 
           // pitched roof
@@ -241,8 +299,9 @@ export function buildBuildings(network, ground, colliders) {
           detailGeos.push(colouredGeo(roof, rng() > 0.4 ? 0x9a4a35 : 0x7a5647));
 
           breakables.push({
-            kind: 'bina', x: cx, y: gy + hh * 0.35, z: cz, rot,
-            height: hh, wallW: w * 0.7, wallZ: 0, colour: 0xc2bcae,
+            kind: 'bina', x: cx, y: gy, z: cz, rot,
+            height: hh, hw: (w * 0.7) / 2, hd: (depth * 0.72) / 2,
+            wallW: w * 0.7, wallZ: 0, colour: 0xc2bcae,
             walls: houseWalls, bucket: key,
             box: colliders.add(cx, cz, (w * 0.7) / 2, (depth * 0.72) / 2, rot)
           });
@@ -274,8 +333,8 @@ export function buildBuildings(network, ground, colliders) {
           const shop = wallBox(wSnap + 0.7, SHOP_H, dSnap + 0.7, SHOP_TEX_W, SHOP_H);
           shop.applyMatrix4(mtx);
           const sIdx = track('shop', shopGeos, shop);
-          for (let f = 0; f < 4; f++) {
-            blockWalls.push({ face: f, geoIndex: sIdx, offset: f * 4, count: 4, bucket: 'shop' });
+          for (const rec of shop.userData.walls) {
+            blockWalls.push({ ...rec, geoIndex: sIdx, bucket: 'shop' });
           }
           // shop canopy
           const canopy = new THREE.BoxGeometry(wSnap + 2.4, 0.28, dSnap + 2.4);
@@ -289,8 +348,8 @@ export function buildBuildings(network, ground, colliders) {
         body.translate(0, baseY, 0);
         body.applyMatrix4(mtx);
         const bIdx = track(key, facadeGeos[key], body);
-        for (let f = 0; f < 4; f++) {
-          blockWalls.push({ face: f, geoIndex: bIdx, offset: f * 4, count: 4, bucket: key });
+        for (const rec of body.userData.walls) {
+          blockWalls.push({ ...rec, geoIndex: bIdx, bucket: key, baseY });
         }
 
         // roof slab
@@ -351,8 +410,9 @@ export function buildBuildings(network, ground, colliders) {
         }
 
         breakables.push({
-          kind: 'bina', x: cx, y: gy + 1.4, z: cz, rot,
-          height: baseY + bodyH, wallW: wSnap, wallZ: 0, colour: 0xb9b3a6,
+          kind: 'bina', x: cx, y: gy, z: cz, rot,
+          height: baseY + bodyH, hw: wSnap / 2, hd: dSnap / 2,
+          wallW: wSnap, wallZ: 0, colour: 0xb9b3a6,
           walls: blockWalls,
           box: colliders.add(cx, cz, wSnap / 2, dSnap / 2, rot)
         });
@@ -415,7 +475,11 @@ export function buildBuildings(network, ground, colliders) {
       const at = sets[w.bucket]?.placed[w.geoIndex];
       if (!at || !at.mesh) return false;
       w.mesh = at.mesh;
-      w.start = at.start + w.offset;
+      // cell offsets were recorded relative to the wall box; shift them to
+      // where that box actually landed inside its tile's buffer
+      w.cells = w.cells.map((c) => at.start + c);
+      if (w.upper !== null) w.upper = at.start + w.upper;
+      w.start = w.cells[0];
       return true;
     });
     b.mesh = b.walls[0]?.mesh ?? null;

@@ -91,11 +91,24 @@ export class ColliderGrid {
           }
           if (depth <= 0) continue;
 
+          // A wall that has been driven through has a hole in it. Anything
+          // inside that hole passes, so the rest of the building still stops
+          // you but the gap you made is a way in.
+          if (b.holes) {
+            let through = false;
+            for (const h of b.holes) {
+              const hx = px - h.x;
+              const hz = pz - h.z;
+              if (hx * hx + hz * hz < h.r * h.r) { through = true; break; }
+            }
+            if (through) continue;
+          }
+
           // Only now, with a real overlap in hand, is this thing actually
           // being hit. Asking sooner would break everything the broad phase
           // returned — which is a whole cell of the city, not the lamp post
           // in front of the bumper.
-          if (b.frail && onFrail && onFrail(b)) continue;
+          if (b.frail && onFrail && onFrail(b, px, pz)) continue;
 
           // back to world space
           const nx = nlx * b.cos - nlz * b.sin;

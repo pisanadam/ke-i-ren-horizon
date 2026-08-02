@@ -211,6 +211,35 @@ export class Effects {
     this.smokeTintArr[i * 3 + 2] = tint[2];
   }
 
+  /**
+   * A cloud, all at once: masonry dust off a breached wall, or the puff a
+   * felled tree throws up. Scaled by the particle setting like everything
+   * else, so it can be turned down.
+   */
+  burst(x, y, z, count, opts = {}) {
+    const n = Math.round(count * this.smokeScale);
+    const spread = opts.spread ?? 2.4;
+    const lift = opts.lift ?? 3;
+    const size = opts.size ?? 1.6;
+    const life = opts.life ?? 1.5;
+    const tint = opts.tint ?? [0.78, 0.75, 0.7];
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * spread;
+      this.emitSmoke(
+        x + Math.cos(a) * r * 0.5,
+        y + Math.random() * spread * 0.8,
+        z + Math.sin(a) * r * 0.5,
+        (opts.vx ?? 0) * 0.25 + Math.cos(a) * (1 + Math.random() * 2.4),
+        Math.random() * lift,
+        (opts.vz ?? 0) * 0.25 + Math.sin(a) * (1 + Math.random() * 2.4),
+        size * (0.6 + Math.random()),
+        life * (0.7 + Math.random() * 0.8),
+        tint
+      );
+    }
+  }
+
   update(dt) {
     for (let i = 0; i < SMOKE_MAX; i++) {
       const p = this.smoke[i];

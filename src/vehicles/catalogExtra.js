@@ -376,5 +376,39 @@ export const EXTRA_CARS = [
     electric: true,
     mass: 2000, power: 15000, topSpeed: 51, grip: 1.20, brake: 17500, steerMax: 0.57,
     voice: { ...VOICE.electric, whine: [190, 30] }
+  }),
+
+  // ================================ CANAVAR ==============================
+  car({
+    id: 'canavar', name: 'Canavar Kamyonet', class: 'Canavar',
+    desc: 'Bir metrelik lastikler, bir metre yerden yükseklik. Kaldırım diye bir ' +
+      'kavram tanımaz, park arabalarının üstünden geçer, çamurda evindedir.',
+    colours: [0x2f6f3a, 0xb8321f, 0x1b1d21, 0x2b4a7a, 0xd8a022, 0x6a2f7a],
+    length: 5.40, width: 2.34, wheelBase: 3.30, rideHeight: 1.02,
+    bodyHeight: 0.82, cabinHeight: 0.72, cabinBack: -0.30, cabinFront: 0.46,
+    roofBack: 0.16, roofFront: 0.20, rearWidth: 1, frontWidth: 0.99,
+    // wheels this size are the whole point: the arch, the sill and the camera
+    // height all follow the wheel radius, so the body rides up with them
+    wheelRadius: 0.92, wheelWidth: 0.62,
+    bed: true, bullBar: true, roofRack: true, lightBar: true,
+    mass: 3400, power: 26000, topSpeed: 44, grip: 1.02, brake: 17000, steerMax: 0.66,
+    voice: { ...VOICE.v8, cut: [200, 2200], ex: 2.1, q: 11 },
+    rim: { id: 'canavar', name: 'Canavar', spokes: 6, style: 'dish', colour: 0xd8d5cc }
+  }),
+  car({
+    id: 'dehset-kamyon', name: 'Dehşet Motorlu Kamyon', class: 'Canavar',
+    desc: 'Kabinin arkasında bir çekicinin değil, bir geminin motoru var. On iki ' +
+      'tonla üç yüz kilometrenin üstüne çıkar; durdurmak kalkıştan zordur.',
+    colours: [0x1b1d21, 0x8a1520, 0xd8d5cc, 0x1d3d5c, 0xc06a12],
+    length: 6.40, width: 2.46, wheelBase: 3.90, rideHeight: 0.78,
+    // a cab-over: short, tall glasshouse right at the front, flat bed behind
+    bodyHeight: 1.34, cabinHeight: 1.30, cabinBack: 0.06, cabinFront: 0.86,
+    rearWidth: 0.98, frontWidth: 1,
+    tall: true, acUnit: true, bullBar: true, bed: true,
+    wheelRadius: 0.72, wheelWidth: 0.46,
+    mass: 12000, power: 210000, topSpeed: 92, grip: 0.92, brake: 62000, steerMax: 0.44,
+    turboGain: 1.7, turboLag: 1.1,
+    voice: { ...VOICE.v12, cyl: 16, cut: [160, 3600], ex: 2.4, q: 9, redline: 5200 },
+    stats: { speed: 1, accel: 1, grip: 0.6, brake: 1 }
   })
 ];

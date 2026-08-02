@@ -179,6 +179,24 @@ class Game {
       this._crash = Math.max(this._crash ?? 0, hard);
       this._crashKind = item.kind;
       this.rig?.addShake(Math.min(0.7, hard) * this.shakeScale);
+
+      // dust: masonry throws up a cloud, a lamp post barely anything
+      const dust = { bina: 44, park: 12, agac: 16, lamba: 6 }[item.kind] ?? 8;
+      this.effects?.burst(
+        blow?.x ?? item.x,
+        (blow?.y ?? item.y) + 0.8,
+        blow?.z ?? item.z,
+        Math.round(dust * (0.5 + hard)),
+        {
+          vx: blow?.vx ?? 0,
+          vz: blow?.vz ?? 0,
+          spread: item.kind === 'bina' ? 3.4 : 1.8,
+          lift: item.kind === 'bina' ? 4.5 : 2.4,
+          size: item.kind === 'bina' ? 2.2 : 1.3,
+          life: item.kind === 'bina' ? 2.2 : 1.2,
+          tint: item.kind === 'agac' ? [0.42, 0.55, 0.3] : [0.76, 0.73, 0.68]
+        }
+      );
     };
 
     await step(90, 'Trafik akıyor…');
@@ -281,14 +299,16 @@ class Game {
 
     this.vehicle = new Vehicle(spec, this.world);
     // what happens when the car meets something that can be knocked down
-    this.vehicle.onFrail = (box, speed, dx, dz) => {
+    this.vehicle.onFrail = (box, speed, dx, dz, px, pz) => {
       if (!box.brk || !this.breakables) return false;
       const item = box.brk;
       // What it takes to go through, and what it costs you. A lamp column is
       // barely there; a wall is a wall, and needs a proper run at it.
       const need = NEED_SPEED[item.kind] ?? 5;
       if (speed < need) return false;
-      if (!this.breakables.smash(item, { speed, vx: dx * speed, vz: dz * speed })) return false;
+      if (!this.breakables.smash(item, {
+        speed, vx: dx * speed, vz: dz * speed, x: px, z: pz
+      })) return false;
       this.vehicle.velocity.multiplyScalar(TOLL[item.kind] ?? 0.9);
       this.vehicle.impact = Math.max(this.vehicle.impact, Math.min(1, speed / 22));
       return true;

@@ -95,33 +95,81 @@ export class Breakables {
    */
   _breach(item, blow) {
     const yaw = item.rot ?? 0;
+    const cs = Math.cos(yaw);
+    const sn = Math.sin(yaw);
     const vx = blow?.vx ?? 0;
     const vz = blow?.vz ?? 0;
-    // into the building's local axes
-    const lx = vx * Math.cos(yaw) - vz * Math.sin(yaw);
-    const lz = vx * Math.sin(yaw) + vz * Math.cos(yaw);
-    // wallBox lays the faces down in this order
+    // direction of travel, and where the car is, in the building's own axes
+    const lx = vx * cs - vz * sn;
+    const lz = vx * sn + vz * cs;
+    const px = blow?.x ?? item.x;
+    const pz = blow?.z ?? item.z;
+    const ox = (px - item.x) * cs - (pz - item.z) * sn;
+    const oz = (px - item.x) * sn + (pz - item.z) * cs;
+
+    // wallBox lays the faces down in this order; heading +Z hits the -Z wall
     const face = Math.abs(lz) > Math.abs(lx)
-      ? (lz > 0 ? 1 : 0)          // heading +Z hits the -Z wall, and the reverse
+      ? (lz > 0 ? 1 : 0)
       : (lx > 0 ? 3 : 2);
 
-    const already = item.gone === true;
-    for (const w of item.walls) {
-      if (w.done) continue;
-      if (w.face !== face) continue;
-      this._hide(w.mesh ?? item.mesh, w.start, w.count, item);
-      w.done = true;
+    const hw = item.hw ?? 6;
+    const hd = item.hd ?? 6;
+    // how far along that wall the car went in, 0 at one end and 1 at the other
+    let t;
+    if (face === 0) t = (ox + hw) / (2 * hw);
+    else if (face === 1) t = (hw - ox) / (2 * hw);
+    else if (face === 2) t = (hd - oz) / (2 * hd);
+    else t = (oz + hd) / (2 * hd);
+    t = Math.max(0, Math.min(1, t));
+
+    const wall = item.walls.find((w) => w.face === face && !w.exhausted);
+    if (!wall) return false;
+
+    // A car-wide bite out of the wall: the column it went in at plus its
+    // neighbour, both rows of the reachable band. What is left of the wall
+    // stays standing, which is the difference between a hole and a demolition.
+    const hit = Math.min(wall.cols - 1, Math.floor(t * wall.cols));
+    const from = Math.max(0, Math.min(wall.cols - 2, hit - (t * wall.cols - hit < 0.5 ? 1 : 0)));
+    const opened = [];
+    wall.holes = wall.holes || new Set();
+    for (let r = 0; r < wall.rows; r++) {
+      for (let c = from; c <= Math.min(wall.cols - 1, from + 1); c++) {
+        const n = r * wall.cols + c;
+        if (wall.holes.has(n)) continue;
+        wall.holes.add(n);
+        this._hide(wall.mesh, wall.cells[n], 4, item);
+        opened.push(n);
+      }
     }
-    if (item.box) item.box.solid = false;
-    if (!already) {
-      item.gone = true;
+    if (!opened.length) return false;
+    if (wall.holes.size >= wall.cols * wall.rows) wall.exhausted = true;
+
+    // Where the hole is, in the world — the collider is told to let anything
+    // through there, so the rest of the building still stops you.
+    const along = ((from + 1) / wall.cols) * 2 - 1;
+    let hx;
+    let hz;
+    if (face === 0) { hx = along * hw; hz = hd; }
+    else if (face === 1) { hx = -along * hw; hz = -hd; }
+    else if (face === 2) { hx = hw; hz = -along * hd; }
+    else { hx = -hw; hz = along * hd; }
+    const worldX = item.x + hx * cs + hz * sn;
+    const worldZ = item.z - hx * sn + hz * cs;
+    if (item.box) {
+      item.box.holes = item.box.holes || [];
+      item.box.holes.push({ x: worldX, z: worldZ, r: (2.2 * 2) / 2 + 1.2 });
+    }
+
+    const first = !item.gone;
+    item.gone = true;
+    if (first) {
       this.broken++;
-      // Once a wall is missing you can see the inside of the others, and a
-      // single-sided shell would look like an open box with no far wall.
+      // Once a wall is open you can see the inside of the others, and a
+      // single-sided shell would look like a box with no far wall.
       this.onOpened?.(item);
-      this._scatter(item, blow);
-      this.onBreak(item, blow);
     }
+    this._scatter({ ...item, x: worldX, z: worldZ, y: item.y }, blow);
+    this.onBreak(item, { ...blow, x: worldX, z: worldZ, y: item.y + 1.5 });
     return true;
   }
 
@@ -242,21 +290,31 @@ export function treePieces(item) {
 /** Masonry off a breached wall. */
 export function wallPieces(item) {
   const pieces = [];
-  const n = 7;
-  const span = Math.max(2, item.wallW ?? 8);
-  for (let i = 0; i < n; i++) {
+  // a mix: a few slabs off the edge of the hole and a lot of small rubble
+  for (let i = 0; i < 4; i++) {
     pieces.push({
-      y: item.y + 0.6 + Math.random() * 3.2,
-      dx: (Math.random() - 0.5) * span * 0.8,
-      dz: (item.wallZ ?? 0) * 0.9,
-      hx: 0.35 + Math.random() * 0.5,
-      hy: 0.22 + Math.random() * 0.3,
-      hz: 0.3 + Math.random() * 0.45,
-      mass: 120 + Math.random() * 180,
+      y: item.y + 0.5 + Math.random() * 3.6,
+      dx: (Math.random() - 0.5) * 4.2,
+      dz: (Math.random() - 0.5) * 1.4,
+      hx: 0.42 + Math.random() * 0.5,
+      hy: 0.3 + Math.random() * 0.4,
+      hz: 0.22 + Math.random() * 0.2,
+      mass: 260 + Math.random() * 220,
       colour: item.colour ?? 0xb9b3a6,
-      spread: 1.2,
-      restitution: 0.08,
-      friction: 0.85
+      spread: 1, restitution: 0.06, friction: 0.9
+    });
+  }
+  for (let i = 0; i < 10; i++) {
+    pieces.push({
+      y: item.y + 0.3 + Math.random() * 4.2,
+      dx: (Math.random() - 0.5) * 5.2,
+      dz: (Math.random() - 0.5) * 2.4,
+      hx: 0.1 + Math.random() * 0.22,
+      hy: 0.1 + Math.random() * 0.2,
+      hz: 0.1 + Math.random() * 0.22,
+      mass: 25 + Math.random() * 60,
+      colour: item.colour ?? 0xb9b3a6,
+      spread: 1.8, restitution: 0.2, friction: 0.8
     });
   }
   return pieces;
