@@ -4,6 +4,7 @@ import { MAP, LANDMARKS } from './mapData.js';
 import { softDotTexture } from '../textures.js';
 import { makeRng, randRange, randPick } from '../util/math.js';
 import { QUALITY } from '../quality.js';
+import { mergeByTile, instanceByTile } from './tiles.js';
 
 /**
  * Everything that dresses the streets: pavement trees, lamp columns, signal
@@ -85,22 +86,17 @@ export function buildProps(network, ground, colliders) {
   // the order it is given, so a running vertex count is all it takes to know
   // which slice belongs to which lamp post.
   const breakables = [];
-  let poleVerts = 0;
-  let parkedVerts = 0;
   const pushPole = (geo) => {
     poleGeos.push(geo);
-    poleVerts += geo.attributes.position.count;
     return geo;
   };
   const pushParked = (geo) => {
     parkedGeos.push(geo);
-    parkedVerts += geo.attributes.position.count;
     return geo;
   };
 
   // instanced buffers
   const trunks = [];
-  const canopies = [];
   const lampHeads = [];
   const signalLenses = [];   // {x,y,z,rot,lightIndex,group,lens}
 
@@ -149,7 +145,7 @@ export function buildProps(network, ground, colliders) {
       const y = p.y + 0.16;
       const h = edge.type === 'highway' ? 11 : edge.major ? 9 : 7.5;
 
-      const start = poleVerts;
+      const from = poleGeos.length;
       const pole = new THREE.CylinderGeometry(0.11, 0.16, h, 6);
       pole.translate(x, y + h / 2, z);
       pushPole(tinted(pole, 0x545a60));
@@ -175,7 +171,7 @@ export function buildProps(network, ground, colliders) {
 
       breakables.push({
         kind: 'lamba', x, y, z, height: h,
-        start, count: poleVerts - start,
+        bucket: 'pole', from, to: poleGeos.length - 1,
         box: colliders.add(x, z, 0.2, 0.2, 0),
         lampIndex: lampHeads.length - 1,
         colour: 0x545a60, headColour: 0x22252a
@@ -258,11 +254,11 @@ export function buildProps(network, ground, colliders) {
             .makeTranslation(x, p.y + 0.1, z)
             .multiply(new THREE.Matrix4().makeRotationY(rot))
         );
-        const start = parkedVerts;
+        const from = parkedGeos.length;
         pushParked(geo);
         breakables.push({
           kind: 'park', x, y: p.y + 0.1, z, height: 1.5, yaw: rot,
-          start, count: parkedVerts - start,
+          bucket: 'parked', from, to: parkedGeos.length - 1,
           box: colliders.add(x, z, 1.0, 2.2, rot),
           colour
         });
@@ -352,7 +348,7 @@ export function buildProps(network, ground, colliders) {
         const y = node.y + 0.16;
 
         const H = 5.2;
-        const start = poleVerts;
+        const from = poleGeos.length;
         const pole = new THREE.CylinderGeometry(0.1, 0.14, H, 6);
         pole.translate(x, y + H / 2, z);
         pushPole(tinted(pole, 0x3c4148));
@@ -390,7 +386,7 @@ export function buildProps(network, ground, colliders) {
         }
         breakables.push({
           kind: 'lamba', x, y, z, height: H,
-          start, count: poleVerts - start,
+          bucket: 'pole', from, to: poleGeos.length - 1,
           box: colliders.add(x, z, 0.2, 0.2, 0),
           lensFrom, lensCount: 3,
           colour: 0x3c4148, headColour: 0x22262b
@@ -430,31 +426,43 @@ export function buildProps(network, ground, colliders) {
     });
   }
 
-  for (const t of trunks) {
-    canopies.push(t);
-  }
-
   // --------------------------------------------------------------- meshes
-  const poleMesh = mergeInto(
-    group,
+  const sets = {};
+  const tiled = (geos, mat, name) => {
+    const set = mergeByTile(geos, mat, name);
+    group.add(set.group);
+    return set;
+  };
+  sets.pole = tiled(
     poleGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.25 }),
     'poles'
   );
-  mergeInto(
-    group,
+  sets.furniture = tiled(
     furnitureGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
     'furniture'
   );
-  const parkedMesh = mergeInto(
-    group,
+  sets.parked = tiled(
     parkedGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 }),
     'parked-cars'
   );
-  // the merged buffers get written to when something is knocked down
-  for (const b of breakables) b.mesh = b.kind === 'park' ? parkedMesh : poleMesh;
+
+  // Resolve each breakable to the tile mesh its pieces landed in. Everything
+  // pushed for one object shares a position, so it shares a tile, and its
+  // vertices are one contiguous run inside that tile's buffer.
+  for (const b of breakables) {
+    if (!b.bucket) continue;
+    const set = sets[b.bucket];
+    const first = set?.placed[b.from];
+    if (!first || !first.mesh) { b.mesh = null; continue; }
+    b.mesh = first.mesh;
+    b.start = first.start;
+    let count = 0;
+    for (let i = b.from; i <= b.to; i++) count += set.placed[i]?.count ?? 0;
+    b.count = count;
+  }
 
   if (wirePoints.length) {
     const wg = new THREE.BufferGeometry();
@@ -467,80 +475,90 @@ export function buildProps(network, ground, colliders) {
     group.add(wires);
   }
 
-  // ---- trees (instanced) -------------------------------------------------
+  // ---- trees (instanced, one mesh per tile) ------------------------------
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 6);
   trunkGeo.translate(0, 1.5, 0);
-  const trunkMesh = new THREE.InstancedMesh(
-    trunkGeo,
-    new THREE.MeshStandardMaterial({ color: 0x5c4632, roughness: 0.95 }),
-    trunks.length
-  );
   const canopyGeo = new THREE.IcosahedronGeometry(2.15, 0);
   canopyGeo.scale(1, 1.18, 1);
   canopyGeo.translate(0, 4.1, 0);
-  const canopyMesh = new THREE.InstancedMesh(
-    canopyGeo,
-    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, flatShading: true }),
-    canopies.length
-  );
 
-  const dummy = new THREE.Object3D();
   const leaf = new THREE.Color();
   const leafPalette = [0x4f7a37, 0x5f8a3c, 0x44682f, 0x6d8f45, 0x3d6b3a, 0x7a8f4a];
-  trunks.forEach((t, i) => {
-    dummy.position.set(t.x, t.y, t.z);
-    dummy.rotation.set(0, t.rot, 0);
-    dummy.scale.setScalar(t.s);
-    dummy.updateMatrix();
-    trunkMesh.setMatrixAt(i, dummy.matrix);
-    dummy.scale.set(t.s * randRange(rng, 0.85, 1.2), t.s * randRange(rng, 0.85, 1.25), t.s * randRange(rng, 0.85, 1.2));
-    dummy.updateMatrix();
-    canopyMesh.setMatrixAt(i, dummy.matrix);
+  // colour and canopy scale are decided once, up front, so the trunk and the
+  // crown of the same tree agree even though they are built in two passes
+  for (const t of trunks) {
+    t.cs = [
+      t.s * randRange(rng, 0.85, 1.2),
+      t.s * randRange(rng, 0.85, 1.25),
+      t.s * randRange(rng, 0.85, 1.2)
+    ];
     leaf.setHex(randPick(rng, leafPalette));
     leaf.offsetHSL(0, randRange(rng, -0.06, 0.06), randRange(rng, -0.05, 0.05));
-    canopyMesh.setColorAt(i, leaf);
+    t.leaf = leaf.getHex();
+  }
+
+  const trunkSet = instanceByTile(
+    trunks, trunkGeo,
+    new THREE.MeshStandardMaterial({ color: 0x5c4632, roughness: 0.95 }),
+    'tree-trunks',
+    (t, i, dummy) => {
+      dummy.position.set(t.x, t.y, t.z);
+      dummy.rotation.set(0, t.rot, 0);
+      dummy.scale.setScalar(t.s);
+      return null;
+    }
+  );
+  const canopySet = instanceByTile(
+    trunks, canopyGeo,
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, flatShading: true }),
+    'tree-canopies',
+    (t, i, dummy) => {
+      dummy.position.set(t.x, t.y, t.z);
+      dummy.rotation.set(0, t.rot, 0);
+      dummy.scale.set(t.cs[0], t.cs[1], t.cs[2]);
+      return leaf.setHex(t.leaf);
+    }
+  );
+  for (const s2 of [trunkSet, canopySet]) {
+    for (const tile of s2.tiles) {
+      tile.mesh.castShadow = true;
+      tile.mesh.receiveShadow = true;
+    }
+    group.add(s2.group);
+  }
+  sets.trunk = trunkSet;
+  sets.canopy = canopySet;
+
+  trunks.forEach((t, i) => {
     // A tree you can drive through is not a tree. Each one gets a trunk-sized
     // collider and goes on the breakable list, so hitting it at speed snaps it
     // instead of passing through as if it were a poster.
     breakables.push({
       kind: 'agac', x: t.x, y: t.y, z: t.z, height: 3.2 * t.s, scale: t.s,
-      leaf: leaf.getHex(),
-      instances: [{ mesh: trunkMesh, index: i }, { mesh: canopyMesh, index: i }],
+      leaf: t.leaf,
+      instances: [trunkSet.slots[i], canopySet.slots[i]].filter(Boolean),
       box: colliders.add(t.x, t.z, 0.34 * t.s, 0.34 * t.s, 0)
     });
   });
-  trunkMesh.instanceMatrix.needsUpdate = true;
-  canopyMesh.instanceMatrix.needsUpdate = true;
-  if (canopyMesh.instanceColor) canopyMesh.instanceColor.needsUpdate = true;
-  trunkMesh.castShadow = true;
-  canopyMesh.castShadow = true;
-  canopyMesh.receiveShadow = true;
-  trunkMesh.name = 'tree-trunks';
-  canopyMesh.name = 'tree-canopies';
-  group.add(trunkMesh, canopyMesh);
 
-  // ---- lamp heads (emissive, dimmed during the day) ----------------------
-  const headGeo = new THREE.BoxGeometry(0.7, 0.16, 0.36);
+  // ---- lamp heads, light pools and signal lenses -------------------------
+  // Tiled like everything else: one instanced mesh per lamp for the whole map
+  // is one bounding sphere the size of Ankara, which can never be culled.
   const headMat = new THREE.MeshStandardMaterial({
     color: 0x22252a,
     emissive: new THREE.Color(0xffd9a0),
     emissiveIntensity: 0,
     roughness: 0.5
   });
-  const headMesh = new THREE.InstancedMesh(headGeo, headMat, Math.max(1, lampHeads.length));
-  lampHeads.forEach((h, i) => {
-    dummy.position.set(h.x, h.y, h.z);
-    dummy.rotation.set(0, h.rot, 0);
-    dummy.scale.setScalar(1);
-    dummy.updateMatrix();
-    headMesh.setMatrixAt(i, dummy.matrix);
+  const headGeo = new THREE.BoxGeometry(0.7, 0.16, 0.36);
+  sets.head = instanceByTile(lampHeads, headGeo, headMat, 'lamp-heads', (h, i, d) => {
+    d.position.set(h.x, h.y, h.z);
+    d.rotation.set(0, h.rot, 0);
+    d.scale.setScalar(1);
+    return null;
   });
-  headMesh.count = lampHeads.length;
-  headMesh.instanceMatrix.needsUpdate = true;
-  headMesh.name = 'lamp-heads';
-  group.add(headMesh);
+  group.add(sets.head.group);
 
-  // ---- pools of light on the tarmac beneath each lamp --------------------
   const poolGeo = new THREE.CircleGeometry(1, 14);
   poolGeo.rotateX(-Math.PI / 2);
   const poolMat = new THREE.MeshBasicMaterial({
@@ -552,36 +570,27 @@ export function buildProps(network, ground, colliders) {
     blending: THREE.AdditiveBlending,
     toneMapped: false
   });
-  const poolMesh = new THREE.InstancedMesh(poolGeo, poolMat, Math.max(1, lampHeads.length));
-  lampHeads.forEach((hd, i) => {
-    dummy.position.set(hd.x, hd.poolY, hd.z);
-    dummy.rotation.set(0, hd.rot, 0);
-    dummy.scale.setScalar(hd.poolR);
-    dummy.updateMatrix();
-    poolMesh.setMatrixAt(i, dummy.matrix);
+  sets.pool = instanceByTile(lampHeads, poolGeo, poolMat, 'lamp-pools', (h, i, d) => {
+    d.position.set(h.x, h.poolY, h.z);
+    d.rotation.set(0, h.rot, 0);
+    d.scale.setScalar(h.poolR);
+    return null;
   });
-  poolMesh.count = lampHeads.length;
-  poolMesh.instanceMatrix.needsUpdate = true;
-  poolMesh.renderOrder = 1;
-  poolMesh.name = 'lamp-pools';
-  group.add(poolMesh);
+  for (const t of sets.pool.tiles) t.mesh.renderOrder = 1;
+  group.add(sets.pool.group);
 
-  // ---- signal lenses -----------------------------------------------------
   const lensGeo = new THREE.CircleGeometry(0.14, 10);
   const lensMat = new THREE.MeshBasicMaterial({ vertexColors: false, toneMapped: false });
-  const lensMesh = new THREE.InstancedMesh(lensGeo, lensMat, Math.max(1, signalLenses.length));
-  signalLenses.forEach((s, i) => {
-    dummy.position.set(s.x, s.y, s.z);
-    dummy.rotation.set(0, s.rot, 0);
-    dummy.scale.setScalar(1);
-    dummy.updateMatrix();
-    lensMesh.setMatrixAt(i, dummy.matrix);
-    lensMesh.setColorAt(i, new THREE.Color(0x111111));
+  const dark = new THREE.Color(0x111111);
+  sets.lens = instanceByTile(signalLenses, lensGeo, lensMat, 'signal-lenses', (s2, i, d) => {
+    d.position.set(s2.x, s2.y, s2.z);
+    d.rotation.set(0, s2.rot, 0);
+    d.scale.setScalar(1);
+    return dark;
   });
-  lensMesh.count = signalLenses.length;
-  lensMesh.instanceMatrix.needsUpdate = true;
-  lensMesh.name = 'signal-lenses';
-  group.add(lensMesh);
+  group.add(sets.lens.group);
+  // the signal update walks these, so each lens carries its own slot
+  signalLenses.forEach((s2, i) => { s2.slot = sets.lens.slots[i]; });
 
   // ---- pedestrians -------------------------------------------------------
   const pedestrians = createPedestrians(network, rng);
@@ -593,12 +602,15 @@ export function buildProps(network, ground, colliders) {
   for (const b of breakables) {
     if (!b.instances) b.instances = [];
     if (b.lampIndex !== undefined) {
-      b.instances.push({ mesh: headMesh, index: b.lampIndex });
-      b.instances.push({ mesh: poolMesh, index: b.lampIndex });
+      for (const set of [sets.head, sets.pool]) {
+        const slot = set.slots[b.lampIndex];
+        if (slot) b.instances.push(slot);
+      }
     }
     if (b.lensFrom !== undefined) {
       for (let i = 0; i < b.lensCount; i++) {
-        b.instances.push({ mesh: lensMesh, index: b.lensFrom + i });
+        const slot = sets.lens.slots[b.lensFrom + i];
+        if (slot) b.instances.push(slot);
       }
     }
   }
@@ -608,7 +620,7 @@ export function buildProps(network, ground, colliders) {
     lampMaterial: headMat,
     lampPoolMaterial: poolMat,
     signalLenses,
-    lensMesh,
+    tileSets: Object.values(sets),
     pedestrians,
     breakables,
     treeCount: trunks.length

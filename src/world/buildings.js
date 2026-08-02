@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeByTile } from './tiles.js';
 import { facadeTexture, shopTexture, roofTexture, FACADE_KEYS } from '../textures.js';
 import { LANDMARKS, MAP, DISTRICT_GRIDS } from './mapData.js';
 import { makeRng, clamp, randRange, randPick } from '../util/math.js';
@@ -69,16 +70,14 @@ function colouredGeo(geo, colour) {
  */
 export function buildBuildings(network, ground, colliders) {
   const rng = makeRng(776655);
-  // Where every building's walls end up inside their merged mesh. `wallBox`
-  // lays down four quads of four vertices in a fixed order, so a single face
-  // can be found and taken out later without touching anything else.
+  // Where every building's walls end up. `wallBox` lays down four quads of
+  // four vertices in a fixed order, so a single face can be found and taken
+  // out later. The mesh a wall lands in is not known until the tiling runs,
+  // so what is remembered here is the geometry's place in the source list.
   const breakables = [];
-  const verts = {};
   const track = (bucket, list, geo) => {
-    const start = verts[bucket] ?? 0;
     list.push(geo);
-    verts[bucket] = start + geo.attributes.position.count;
-    return start;
+    return list.length - 1;
   };
   const group = new THREE.Group();
   group.name = 'buildings';
@@ -227,9 +226,9 @@ export function buildBuildings(network, ground, colliders) {
           const key = randPick(rng, FACADE_KEYS);
           const body = wallBox(w * 0.7, hh, depth * 0.72, TEX_W, TEX_H);
           body.applyMatrix4(mtx);
-          const bStart = track(key, facadeGeos[key], body);
+          const bIdx = track(key, facadeGeos[key], body);
           const houseWalls = [0, 1, 2, 3].map((f) => ({
-            face: f, start: bStart + f * 4, count: 4, bucket: key
+            face: f, geoIndex: bIdx, offset: f * 4, count: 4, bucket: key
           }));
 
           // pitched roof
@@ -274,9 +273,9 @@ export function buildBuildings(network, ground, colliders) {
         if (hasShops) {
           const shop = wallBox(wSnap + 0.7, SHOP_H, dSnap + 0.7, SHOP_TEX_W, SHOP_H);
           shop.applyMatrix4(mtx);
-          const sStart = track('shop', shopGeos, shop);
+          const sIdx = track('shop', shopGeos, shop);
           for (let f = 0; f < 4; f++) {
-            blockWalls.push({ face: f, start: sStart + f * 4, count: 4, bucket: 'shop' });
+            blockWalls.push({ face: f, geoIndex: sIdx, offset: f * 4, count: 4, bucket: 'shop' });
           }
           // shop canopy
           const canopy = new THREE.BoxGeometry(wSnap + 2.4, 0.28, dSnap + 2.4);
@@ -289,9 +288,9 @@ export function buildBuildings(network, ground, colliders) {
         const body = wallBox(wSnap, bodyH, dSnap, TEX_W, TEX_H, rng() > 0.5 ? 0 : 0.5);
         body.translate(0, baseY, 0);
         body.applyMatrix4(mtx);
-        const bStart = track(key, facadeGeos[key], body);
+        const bIdx = track(key, facadeGeos[key], body);
         for (let f = 0; f < 4; f++) {
-          blockWalls.push({ face: f, start: bStart + f * 4, count: 4, bucket: key });
+          blockWalls.push({ face: f, geoIndex: bIdx, offset: f * 4, count: 4, bucket: key });
         }
 
         // roof slab
@@ -366,22 +365,13 @@ export function buildBuildings(network, ground, colliders) {
   }
 
   // ---------------------------------------------------------------- meshes
+  const sets = {};
   const addMerged = (geos, mat, name) => {
-    const valid = geos.filter(Boolean);
-    if (!valid.length) return null;
-    const merged = mergeGeometries(valid, false);
-    valid.forEach((g) => g.dispose());
-    if (!merged) return null;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.name = name;
-    mesh.matrixAutoUpdate = false;
-    group.add(mesh);
-    return mesh;
+    const set = mergeByTile(geos, mat, name);
+    group.add(set.group);
+    return set;
   };
 
-  const meshes = {};
   const facadeMats = [];
   FACADE_KEYS.forEach((key, i) => {
     const tex = facadeTexture(key, i);
@@ -394,7 +384,7 @@ export function buildBuildings(network, ground, colliders) {
       metalness: 0.02
     });
     facadeMats.push(mat);
-    meshes[key] = addMerged(facadeGeos[key], mat, `facade-${key}`);
+    sets[key] = addMerged(facadeGeos[key], mat, `facade-${key}`);
   });
 
   const shopTex = shopTexture(2);
@@ -405,24 +395,30 @@ export function buildBuildings(network, ground, colliders) {
     roughness: 0.75,
     metalness: 0.05
   });
-  meshes.shop = addMerged(shopGeos, shopMat, 'shops');
+  sets.shop = addMerged(shopGeos, shopMat, 'shops');
 
-  addMerged(
+  sets.roof = addMerged(
     roofGeos,
     new THREE.MeshStandardMaterial({ map: roofTexture(), roughness: 0.95 }),
     'roofs'
   );
-  addMerged(
+  sets.detail = addMerged(
     detailGeos,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
     'roof-details'
   );
 
-  // hand each wall the mesh it actually lives in
+  // Resolve every wall to the tile mesh it ended up in and its offset there.
+  // A wall whose tile came out empty is simply not breakable.
   for (const b of breakables) {
-    b.mesh = meshes[b.bucket] ?? null;
-    for (const w of b.walls) w.mesh = meshes[w.bucket] ?? null;
-    if (!b.mesh) b.mesh = b.walls[0]?.mesh ?? null;
+    b.walls = b.walls.filter((w) => {
+      const at = sets[w.bucket]?.placed[w.geoIndex];
+      if (!at || !at.mesh) return false;
+      w.mesh = at.mesh;
+      w.start = at.start + w.offset;
+      return true;
+    });
+    b.mesh = b.walls[0]?.mesh ?? null;
   }
 
   return {
@@ -430,7 +426,8 @@ export function buildBuildings(network, ground, colliders) {
     count,
     nightMaterials: [...facadeMats, shopMat],
     materials: [...facadeMats, shopMat],
-    breakables,
+    tileSets: Object.values(sets),
+    breakables: breakables.filter((b) => b.walls.length),
     placed
   };
 }

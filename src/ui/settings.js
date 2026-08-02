@@ -19,7 +19,8 @@ const DEFS = [
       { v: 3, t: 'Uzak' }, { v: 4, t: 'Çok uzak' }, { v: 5, t: 'Aşırı' }
     ],
     def: () => QUALITY.chunkRadius,
-    note: 'Ne kadar uzağa kadar ayrıntılı zemin örülsün. Yüksek değer daha çok bellek ister.'
+    note: 'Zeminin ne kadar uzağa örüleceği ve şehrin ne kadarının çizileceği. ' +
+      'Dünya tek seferde kurulur; bu ayar yalnızca ne kadarının çizildiğini belirler.'
   },
   {
     tab: 'video', key: 'shadows', label: 'Gölgeler', live: true,
@@ -298,6 +299,9 @@ export class Settings {
 
     if (g.terrain) g.terrain.radius = v.viewDistance;
     g.streamBudget = v.streamBudget;
+    // the city is merged per tile, so the same setting decides how much of it
+    // is submitted for drawing at all
+    if (g.tiles) g.tiles.distance = [0, 850, 1300, 1900, 2600, 3600][v.viewDistance] ?? 1900;
     if (g.skyEnv) g.skyEnv.fogScale = v.fog;
 
     if (g.reflections) {

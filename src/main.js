@@ -15,6 +15,7 @@ import { SkyEnv } from './world/skyEnv.js';
 import { Reflections, markReflective } from './world/reflections.js';
 import { RigidWorld } from './world/rigid.js';
 import { Breakables } from './world/breakables.js';
+import { TileWorld } from './world/tiles.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
 
@@ -202,6 +203,14 @@ class Game {
     markReflective(buildings.group);
     markReflective(landmarks.group);
     this.terrain.onChunk = (mesh) => markReflective(mesh);
+
+    // Everything static is merged one tile at a time rather than into a
+    // handful of map-sized meshes, so the renderer can throw away what is
+    // behind you and the view-distance setting can switch off the rest.
+    this.tiles = new TileWorld();
+    for (const set of this.roadGroup.userData.tileSets || []) this.tiles.add(set);
+    for (const set of buildings.tileSets || []) this.tiles.add(set);
+    for (const set of props.tileSets || []) this.tiles.add(set);
 
     await step(96, 'Araçlar hazırlanıyor…');
     this.audio = new AudioEngine();
@@ -1001,6 +1010,7 @@ class Game {
       this.metro.update(dt, focus);
       this.props.pedestrians.update(dt, this.clockTime, focus);
       this.effects.update(dt);
+      this.tiles.update(focus.x, focus.z);
       this.rigid.update(dt, focus);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
@@ -1201,13 +1211,15 @@ class Game {
     if (this._lensTimer > 0) return;
     this._lensTimer = 0.12;
 
-    const mesh = this.props.lensMesh;
     const list = this.props.signalLenses;
-    if (!mesh || !list.length) return;
+    if (!list.length) return;
     const c = new THREE.Color();
     const OFF = 0.055;
+    const touched = new Set();
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
+      const slot = s.slot;
+      if (!slot) continue;
       const state = s.light.state[s.group];
       let hex = 0x000000;
       if (s.lens === 0) hex = state === 'red' ? 0xff2b1a : 0x2a0a08;
@@ -1215,9 +1227,11 @@ class Game {
       else hex = state === 'green' ? 0x2bff6a : 0x082a12;
       c.setHex(hex);
       if (state !== 'red' && s.lens === 0) c.multiplyScalar(OFF * 6);
-      mesh.setColorAt(i, c);
+      slot.mesh.setColorAt(slot.index, c);
+      touched.add(slot.mesh);
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // the lenses live in one instanced mesh per tile now
+    for (const m of touched) if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }
 
   _updateFlags() {

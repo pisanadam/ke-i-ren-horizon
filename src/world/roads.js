@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeByTile } from './tiles.js';
 import { asphaltTexture, sidewalkTexture } from '../textures.js';
 import { baseHeight } from './heightfield.js';
 import { lerp } from '../util/math.js';
@@ -390,17 +391,13 @@ export function buildRoads(network) {
     polygonOffsetUnits: -3
   });
 
+  const tileSets = [];
   const add = (geos, mat, name, receive = true) => {
     const valid = geos.filter(Boolean);
     if (!valid.length) return;
-    const merged = mergeGeometries(valid, false);
-    if (!merged) return;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.receiveShadow = receive;
-    mesh.name = name;
-    mesh.matrixAutoUpdate = false;
-    group.add(mesh);
-    valid.forEach((g) => g.dispose());
+    const set = mergeByTile(valid, mat, name, { cast: false, receive });
+    group.add(set.group);
+    tileSets.push(set);
   };
 
   const bankMat = new THREE.MeshStandardMaterial({
@@ -415,5 +412,6 @@ export function buildRoads(network) {
   add(kerbs, kerbMat, 'kerb');
   add(marks, markMat, 'markings');
 
+  group.userData.tileSets = tileSets;
   return group;
 }
