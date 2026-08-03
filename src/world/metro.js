@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeByTile } from './tiles.js';
 import { METRO_LINES } from './mapData.js';
 import { clamp, makeRng, randRange } from '../util/math.js';
 import { QUALITY } from '../quality.js';
@@ -184,18 +185,22 @@ export class Metro {
     const concrete = new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.92, metalness: 0.04
     });
+    /**
+     * Five lines the length of the map used to be three meshes.
+     *
+     * Three meshes with bounding spheres nine kilometres across, which the
+     * frustum test can never reject: the viaduct over Sincan was drawn while
+     * you were in Keçiören, ninety-five thousand triangles of it every frame
+     * wherever you stood. Tiled like the rest of the city it is culled with
+     * everything else.
+     */
+    this.tileSets = [];
     const add = (geos, mat, name) => {
       const valid = geos.filter(Boolean);
       if (!valid.length) return;
-      const merged = mergeGeometries(valid, false);
-      if (!merged) return;
-      const mesh = new THREE.Mesh(merged, mat);
-      mesh.name = name;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
-      valid.forEach((g) => g.dispose());
+      const set = mergeByTile(valid, mat, name);
+      this.group.add(set.group);
+      this.tileSets.push(set);
     };
     add(structure, concrete, 'metro-viaduct');
     add(platforms, concrete, 'metro-stations');

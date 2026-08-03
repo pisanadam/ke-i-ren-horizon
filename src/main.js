@@ -56,6 +56,43 @@ const WRECK_TIME = 3.6;
 /** What a wreck asks of the physics: nothing, with the brakes on. */
 const DEAD_INPUT = { steer: 0, throttle: 0, brake: 1, handbrake: true };
 
+/**
+ * How far each layer of the city is worth drawing, as a share of the view
+ * distance.
+ *
+ * Measured: the roof clutter alone was 385k triangles a frame — more than the
+ * facades under it — because water tanks two kilometres away were being drawn
+ * at full detail to occupy a pixel. Silhouette (facades, roofs, tarmac, tree
+ * canopies) keeps the full horizon; the small stuff stops where it stops
+ * being resolvable.
+ */
+const LAYER_RANGE = {
+  'roof-details': 0.30,
+  'lamp-pools': 0.26,
+  // Pairs that belong together get the same reach, or you get the half of one
+  // that is left: a lamp head floating where its pole stopped, a canopy over
+  // no trunk, a signal lens beside no signal.
+  'lamp-heads': 0.40,
+  poles: 0.40,
+  'signal-lenses': 0.34,
+  furniture: 0.34,
+  'tree-trunks': 0.60,
+  'tree-canopies': 0.60,
+  'parked-cars': 0.40,
+  markings: 0.42,
+  kerb: 0.50,
+  pavement: 0.62,
+  shops: 0.85
+};
+
+/**
+ * Layers with no business in the shadow map. Both of these are lit decals —
+ * the pool of light a lamp throws on the tarmac and the lens of a signal —
+ * so casting a shadow from them is not a saving, it is a bug waiting.
+ * Trees are not on this list: their shadows are the ones you actually notice.
+ */
+const NO_SHADOW_LAYERS = new Set(['lamp-pools', 'signal-lenses']);
+
 class Game {
   constructor() {
     this.state = 'loading';
@@ -235,9 +272,25 @@ class Game {
     // handful of map-sized meshes, so the renderer can throw away what is
     // behind you and the view-distance setting can switch off the rest.
     this.tiles = new TileWorld();
-    for (const set of this.roadGroup.userData.tileSets || []) this.tiles.add(set);
-    for (const set of buildings.tileSets || []) this.tiles.add(set);
-    for (const set of props.tileSets || []) this.tiles.add(set);
+    // The sun's shadow box is a square around the car; anything whose bounding
+    // sphere cannot reach into it has nothing to cast and no reason to be
+    // drawn a second time. The diagonal is what has to be cleared, not the side.
+    this.tiles.shadowDistance = (this.skyEnv?.shadowExtent ?? QUALITY.shadowExtent) * 1.45;
+    for (const set of this.roadGroup.userData.tileSets || []) {
+      this.tiles.add(set, { range: LAYER_RANGE[set.group.name] ?? 1, casts: false });
+    }
+    for (const set of buildings.tileSets || []) {
+      this.tiles.add(set, { range: LAYER_RANGE[set.group.name] ?? 1 });
+    }
+    for (const set of this.metro.tileSets || []) {
+      this.tiles.add(set, { range: LAYER_RANGE[set.group.name] ?? 1 });
+    }
+    for (const set of props.tileSets || []) {
+      this.tiles.add(set, {
+        range: LAYER_RANGE[set.group.name] ?? 1,
+        casts: !NO_SHADOW_LAYERS.has(set.group.name)
+      });
+    }
 
     await step(96, 'Araçlar hazırlanıyor…');
     this.audio = new AudioEngine();

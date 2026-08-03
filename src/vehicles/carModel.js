@@ -248,6 +248,27 @@ function wheelGeometry(radius, width, seg, rim) {
   const rimR = radius * 0.62;
   const sh = radius * 0.16;
 
+  /**
+   * Background traffic gets a wheel, not a wheel model.
+   *
+   * The rounded tyre profile, the barrel, the hub, six spokes and a lip came
+   * to 432 triangles, and four of them ride on every car in the city: nearly
+   * half of a traffic car's 3,688 triangles were wheels you cannot resolve
+   * from the next lane. A tyre and a face is what actually reads at that
+   * distance, and it costs 56.
+   */
+  if (seg <= 10) {
+    const tyre = new THREE.CylinderGeometry(radius, radius, width, seg);
+    tyre.rotateZ(Math.PI / 2);
+    parts.push(tint(tyre, 0x15171b));
+    const face = new THREE.CylinderGeometry(rimR, rimR, width * 1.04, seg);
+    face.rotateZ(Math.PI / 2);
+    parts.push(tint(face, rim?.colour ?? 0xc2c7cf));
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((p) => p.dispose());
+    return merged;
+  }
+
   const profile = [new THREE.Vector2(rimR, -hw), new THREE.Vector2(radius - sh, -hw)];
   for (let i = 1; i <= 3; i++) {
     const a = (i / 4) * (Math.PI / 2);

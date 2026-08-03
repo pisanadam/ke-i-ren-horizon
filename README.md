@@ -365,11 +365,34 @@ küçük harita otomatik olarak güncellenir.
 
 ## Performans notları
 
-Masaüstünde sahne yaklaşık 2,2 milyon üçgen ve ~180 çizim çağrısı üretir;
-telefon kademesinde 1,4 milyon üçgen ve ~170 çağrıya iner. Geometriler malzeme
-başına birleştirilir; ağaçlar, lambalar ve trafik `InstancedMesh` ile çizilir.
-Oyuncunun aracı yaklaşık 11.000 üçgenlik yoğun bir ağ kullanır, trafik araçları
-ise ayrı bir düşük detay seviyesiyle üretilir.
+Masaüstünde, şehrin ortasında, sahne karede ~1,32 milyon üçgen ve ~383 çizim
+çağrısı üretir (ölçüldü; aynı yer daha önce 2,21 milyon üçgen ve 521 çağrıydı).
+Geometriler malzeme başına birleştirilir; ağaçlar, lambalar ve trafik
+`InstancedMesh` ile çizilir. Oyuncunun aracı yaklaşık 22.000 üçgenlik yoğun bir
+ağ kullanır, trafik araçları ise ayrı bir düşük detay seviyesiyle üretilir.
+
+Kareyi asıl ucuzlatan dört şey, hepsi ölçüme bakılarak seçildi:
+
+- **Katman başına çizim uzaklığı.** Her katman aynı ufka kadar çizilmez. Çatı
+  klimaları tek başına karede 385 bin üçgendi — altındaki cephelerden fazla —
+  çünkü iki kilometre ötede bir buçuk piksel kaplayan su deposu tam detayla
+  çiziliyordu. Siluet (cephe, çatı, asfalt, ağaç) tam ufku korur; direk, kaldırım,
+  yol çizgisi, park etmiş araba ve çatı detayı çok daha yakında kesilir.
+  Birbirine ait olanlar aynı uzaklığı paylaşır, yoksa direksiz lamba başı ya da
+  gövdesiz ağaç tacı kalır.
+- **Gölge haritasına mesafeyle giriş.** Güneşin gölge kutusu aracın çevresinde
+  bir kare; sınırlarına ulaşamayacak hiçbir parça oraya ikinci kez çizilmez.
+  Gölge pası 252 bin üçgenden 90 bine indi.
+- **İki kademeli arazi.** Aracın çevresindeki 3×3 kare sekiz metre çözünürlükte
+  örülür, ötesi on altı metrede — arazi 450 binden 134 bin üçgene iner. Uzak
+  ağ 28 cm aşağı çekilir, yoksa köşe kesen yamaç asfaltın içinden çıkar.
+- **Trafik LOD'u.** Bir trafik arabasının 3.688 üçgeninin %47'si tekerlekti;
+  arkadaki araçlar artık 72 üçgenlik tekerlek kullanıyor ve 95 metreden sonra
+  camı, lambası ve tekerleği hiç çizilmiyor.
+
+Sürerken kare başına CPU 3,23 ms'den 2,64 ms'ye, yeni araziye girerken en kötü
+kare 90,6 ms'den 30,1 ms'ye indi: bir kare artık bölünmez bir iş değil, önce
+ucuz kaba ağ konur, ince ağ birkaç kare sonra sırasını bulur.
 
 Bütün kademe ayarları tek yerde: `src/quality.js`. Harita, bina ve trafik
 yoğunluğu, gölge çözünürlüğü, arazi çözünürlüğü ve piksel oranı buradan

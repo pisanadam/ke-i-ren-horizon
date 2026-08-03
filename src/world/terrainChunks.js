@@ -3,6 +3,29 @@ import { MAP } from './mapData.js';
 import { QUALITY } from '../quality.js';
 
 /**
+ * How many chunks out from the car keep the full detail.
+ *
+ * It has to reach the diagonals. At 1.2 it covered the four squares sharing an
+ * edge with the car's own and left the four corners coarse — and a corner
+ * square can begin a couple of metres from the bumper, so a wedge of
+ * sixteen-metre ground came up through the tarmac right beside the car.
+ * √2 is the least that takes in the whole ring; 1.5 takes it in and no more.
+ */
+const NEAR_RING = 1.5;
+/** How much coarser the ground gets past that. */
+const FAR_STEP = 2;
+/**
+ * Coarse ground is dropped by this much.
+ *
+ * Sampling the road-conforming height every sixteen metres instead of every
+ * eight cuts corners, and where it cuts one upwards the hillside pokes through
+ * the road laid over it. Sinking the coarse mesh a hand's breadth puts it
+ * under the tarmac for good; the seam it leaves at the ring boundary is six
+ * hundred metres away and thinner than a pixel.
+ */
+const FAR_SINK = 0.28;
+
+/**
  * Detailed terrain, built a square at a time around the player.
  *
  * Ankara is far too large to mesh in one go — road-conforming terrain costs a
@@ -35,18 +58,43 @@ export class TerrainChunks {
   }
 
   _key(ix, iz) { return ix * 100003 + iz; }
+  _coarseKey(ix, iz) { return -(ix * 100003 + iz) - 1; }
+
+  /**
+   * Whether a chunk is close enough to be worth meshing finely.
+   *
+   * Everything within `radius` used to be built at the same eight-metre
+   * resolution, which meant a square four kilometres across at the detail you
+   * need under the wheels: 450k triangles a frame, more than the whole city
+   * put together. Beyond the ring next to the car, ground detail is smaller
+   * than a pixel, so out there the same square is meshed at sixteen metres and
+   * costs a quarter as much.
+   */
+  _isNear(dx, dz) { return dx * dx + dz * dz <= NEAR_RING * NEAR_RING; }
 
   _inWorld(ix, iz) {
     return Math.abs(ix) <= this.limit && Math.abs(iz) <= this.limit;
   }
 
-  /** Builds one chunk if it does not exist yet. Returns true if it did work. */
-  _build(ix, iz) {
-    const k = this._key(ix, iz);
+  /**
+   * Builds one chunk if it does not exist yet. Returns true if it did work.
+   *
+   * A square can end up meshed twice — once coarse when it was on the horizon
+   * and once fine when the car got to it. Both are kept: the coarse one is
+   * cheap to hold and the car may well drive back out again, and rebuilding
+   * means paying for the road query at every vertex a second time.
+   */
+  _build(ix, iz, near) {
+    const k = near ? this._key(ix, iz) : this._coarseKey(ix, iz);
     if (this.chunks.has(k)) return false;
-    const mesh = this.ground.buildPatch(ix * this.size, iz * this.size, this.size, this.step);
+    const step = near ? this.step : this.step * FAR_STEP;
+    const mesh = this.ground.buildPatch(ix * this.size, iz * this.size, this.size, step);
+    if (!near) {
+      mesh.geometry.translate(0, -FAR_SINK, 0);
+      mesh.geometry.computeBoundingSphere();
+    }
     mesh.visible = false;
-    mesh.name = `chunk-${ix}-${iz}`;
+    mesh.name = `chunk-${ix}-${iz}${near ? '' : '-uzak'}`;
     // chunks appear long after the world is marked up, so they opt in here
     this.onChunk?.(mesh);
     this.group.add(mesh);
@@ -68,7 +116,7 @@ export class TerrainChunks {
         const dx = ix - cx;
         const dz = iz - cz;
         if (dx * dx + dz * dz > (r + 0.35) * (r + 0.35)) continue;
-        out.push({ ix, iz, d: dx * dx + dz * dz });
+        out.push({ ix, iz, d: dx * dx + dz * dz, near: this._isNear(dx, dz) });
       }
     }
     out.sort((a, b) => a.d - b.d);
@@ -77,7 +125,10 @@ export class TerrainChunks {
 
   /** Builds everything around a point right away — used on the loading screen. */
   preload(x, z) {
-    for (const c of this._wanted(x, z)) this._build(c.ix, c.iz);
+    for (const c of this._wanted(x, z)) {
+      this._build(c.ix, c.iz, false);
+      if (c.near) this._build(c.ix, c.iz, true);
+    }
     this.refresh(x, z);
   }
 
@@ -85,7 +136,14 @@ export class TerrainChunks {
   refresh(x, z) {
     const want = new Set();
     for (const c of this._wanted(x, z)) {
-      const k = this._key(c.ix, c.iz);
+      // A square the car has already visited has a fine mesh sitting there;
+      // once it is on the horizon the coarse one is the right one to show, and
+      // if that has not been built yet the fine one will do until it is.
+      const fine = this._key(c.ix, c.iz);
+      const coarse = this._coarseKey(c.ix, c.iz);
+      const k = c.near
+        ? (this.chunks.has(fine) ? fine : coarse)
+        : (this.chunks.has(coarse) ? coarse : fine);
       want.add(k);
       const m = this.chunks.get(k);
       if (m) m.visible = true;
@@ -106,11 +164,29 @@ export class TerrainChunks {
     const want = this._wanted(x, z);
     const deadline = performance.now() + budgetMs;
     let builtAny = false;
+
+    /**
+     * The coarse mesh for a square goes down first, even where a fine one is
+     * wanted.
+     *
+     * A chunk is one indivisible piece of work — five road queries at every
+     * one of six thousand vertices — and at fine resolution that is the
+     * seventy-millisecond frame you feel as a stutter when you drive into new
+     * ground. The coarse version of the same square costs a quarter of that
+     * and `refresh` will happily stand on it, so the ground is never missing
+     * while the detailed mesh is found a spare few milliseconds later.
+     */
     for (const c of want) {
-      if (this.chunks.has(this._key(c.ix, c.iz))) continue;
-      this._build(c.ix, c.iz);
+      if (this.chunks.has(this._coarseKey(c.ix, c.iz))) continue;
+      this._build(c.ix, c.iz, false);
       builtAny = true;
       if (performance.now() >= deadline) break;
+    }
+    for (const c of want) {
+      if (!c.near || this.chunks.has(this._key(c.ix, c.iz))) continue;
+      if (performance.now() >= deadline) break;
+      this._build(c.ix, c.iz, true);
+      builtAny = true;
     }
 
     // only touch visibility when the player actually changed chunk

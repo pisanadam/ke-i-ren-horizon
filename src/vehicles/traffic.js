@@ -13,6 +13,11 @@ const MAX_AGENTS = QUALITY.trafficAgents;
  */
 const FLING_SPEED = 9;
 const SPAWN_MIN = 65;
+/**
+ * Past this the glass, the lamps and the wheels come off a traffic car.
+ * Measured: wheels alone were 47% of one, and there are ninety of them.
+ */
+const DETAIL_DIST = 95;
 const SPAWN_MAX = QUALITY.trafficSpawnMax;
 const DESPAWN = QUALITY.trafficSpawnMax + 100;
 
@@ -344,7 +349,7 @@ export class Traffic {
     }
 
     this._collidePlayer(dt, playerVehicle);
-    this._render();
+    this._render(player?.position ?? player);
   }
 
   /**
@@ -467,19 +472,29 @@ export class Traffic {
     }
   }
 
-  _render() {
+  /**
+   * Lays out the instances for this frame.
+   *
+   * The instances of one car model live in one buffer, and an InstancedMesh is
+   * either drawn whole or not at all — there is no per-instance culling to
+   * lean on. What there is is the order they are written in: near cars first,
+   * far cars after. Then the parts nobody can make out at range simply stop
+   * counting partway down the buffer, and a car on the far side of the
+   * junction costs a shell instead of a shell, glass, lamps and four wheels.
+   */
+  _render(focus) {
     const dummy = this._dummy;
+    const fx = focus?.x ?? 0;
+    const fz = focus?.z ?? 0;
+    const near2 = DETAIL_DIST * DETAIL_DIST;
+
     for (const t of this.types) {
       t.cursor = 0;
       t.wheelCursor = 0;
+      t.nearCount = 0;
     }
 
-    for (const a of this.agents) {
-      if (!a.active) continue;
-      const t = this.types[a.type];
-      const i = t.cursor++;
-      if (i >= MAX_AGENTS) continue;
-
+    const place = (a, t, i) => {
       dummy.position.set(a.x, a.y, a.z);
       if (a.body) {
         // a car in the air is not upright, so it needs the whole rotation
@@ -489,10 +504,22 @@ export class Traffic {
       }
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
-
       t.paint.setMatrixAt(i, dummy.matrix);
       t.paint.setColorAt(i, a.colour);
       if (t.detail) t.detail.setMatrixAt(i, dummy.matrix);
+    };
+
+    // ---- the ones close enough to look at ------------------------------
+    for (const a of this.agents) {
+      if (!a.active) continue;
+      const dx = a.x - fx;
+      const dz = a.z - fz;
+      if (dx * dx + dz * dz > near2) continue;
+      const t = this.types[a.type];
+      const i = t.cursor++;
+      if (i >= MAX_AGENTS) continue;
+      place(a, t, i);
+      t.nearCount = t.cursor;
       if (t.glass) t.glass.setMatrixAt(i, dummy.matrix);
       if (t.glow) t.glow.setMatrixAt(i, dummy.matrix);
 
@@ -509,17 +536,28 @@ export class Traffic {
       }
     }
 
+    // ---- and the rest, as bodywork only --------------------------------
+    for (const a of this.agents) {
+      if (!a.active) continue;
+      const dx = a.x - fx;
+      const dz = a.z - fz;
+      if (dx * dx + dz * dz <= near2) continue;
+      const t = this.types[a.type];
+      const i = t.cursor++;
+      if (i >= MAX_AGENTS) continue;
+      place(a, t, i);
+    }
+
     for (const t of this.types) {
       t.paint.count = t.cursor;
       t.paint.instanceMatrix.needsUpdate = true;
       if (t.paint.instanceColor) t.paint.instanceColor.needsUpdate = true;
       if (t.detail) { t.detail.count = t.cursor; t.detail.instanceMatrix.needsUpdate = true; }
-      if (t.glass) { t.glass.count = t.cursor; t.glass.instanceMatrix.needsUpdate = true; }
-      if (t.glow) { t.glow.count = t.cursor; t.glow.instanceMatrix.needsUpdate = true; }
+      if (t.glass) { t.glass.count = t.nearCount; t.glass.instanceMatrix.needsUpdate = true; }
+      if (t.glow) { t.glow.count = t.nearCount; t.glow.instanceMatrix.needsUpdate = true; }
       t.wheels.count = t.wheelCursor;
       t.wheels.instanceMatrix.needsUpdate = true;
     }
-
   }
 
   /** Takes an agent off the road, returning its body to the pool if it has one. */

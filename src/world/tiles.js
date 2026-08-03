@@ -43,10 +43,23 @@ export class TileSet {
     this.tiles = [];
     /** Where each input geometry ended up: index -> { mesh, start, count } */
     this.placed = [];
+    /**
+     * Share of the view distance this layer is worth drawing at.
+     *
+     * A facade two kilometres away is the skyline; the water tank on its roof
+     * is a pixel and a half, and the lamp post outside it is less than that.
+     * Drawing every layer to the same horizon spends most of the frame on
+     * detail that cannot be resolved, so each layer carries its own reach.
+     */
+    this.range = 1;
+    /** Set false for layers whose shadows nobody would miss. */
+    this.casts = true;
   }
 
   /**
-   * Hides tiles that are entirely further than `dist` away.
+   * Hides tiles that are entirely further than `dist` away, and stops the
+   * ones out of the sun's reach from being drawn a second time into the
+   * shadow map.
    *
    * The test is against each tile's real bounding sphere, not against the
    * grid cell it was filed under. A road surface is one long strip whose
@@ -54,12 +67,21 @@ export class TileSet {
    * its centre and culled by its cell, the tarmac under the car disappeared
    * while the buildings either side stayed.
    */
-  update(x, z, dist) {
+  update(x, z, dist, shadowDist) {
+    const reach = dist * this.range;
     for (const t of this.tiles) {
       const dx = t.cx - x;
       const dz = t.cz - z;
-      const r = dist + t.r;
-      t.mesh.visible = dx * dx + dz * dz <= r * r;
+      const d2 = dx * dx + dz * dz;
+      const r = reach + t.r;
+      const on = d2 <= r * r;
+      t.mesh.visible = on;
+      if (!this.casts) continue;
+      // The shadow camera only covers a box around the car. Everything else
+      // was still being submitted to it — a whole second pass over the city
+      // to work out that none of it lands anywhere the sun can see.
+      const s = shadowDist + t.r;
+      t.mesh.castShadow = on && d2 <= s * s;
     }
   }
 
@@ -192,15 +214,29 @@ export class TileWorld {
   constructor() {
     this.sets = [];
     this.distance = 2200;
+    /** How far from the car the sun's shadow box actually reaches. */
+    this.shadowDistance = 260;
   }
 
-  add(set) {
-    if (set) this.sets.push(set);
+  /**
+   * @param {TileSet} set
+   * @param {{range?:number, casts?:boolean}} [opts] how far this layer is
+   *   worth drawing, as a share of the view distance, and whether it is worth
+   *   putting in the shadow map at all
+   */
+  add(set, opts) {
+    if (!set) return set;
+    if (opts?.range !== undefined) set.range = opts.range;
+    if (opts?.casts === false) {
+      set.casts = false;
+      for (const t of set.tiles) t.mesh.castShadow = false;
+    }
+    this.sets.push(set);
     return set;
   }
 
   update(x, z) {
-    for (const s of this.sets) s.update(x, z, this.distance);
+    for (const s of this.sets) s.update(x, z, this.distance, this.shadowDistance);
   }
 
   /** Every tile mesh in every layer, for the reflection probe and culling. */
