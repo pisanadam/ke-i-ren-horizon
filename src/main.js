@@ -1304,7 +1304,7 @@ class Game {
       const district = this._districtName();
       this.hud.setDistrict(district);
       this.hud.update(dt, this.vehicle, { clock: this.skyEnv.clockText, fps: this.fps });
-      this.minimap.draw(this.vehicle, this.traffic, district, this.waypoint);
+      this.minimap.draw(this.vehicle, this.traffic, district, this.waypoint, this.coop?.peers);
       this._updateWaypointHud();
     }
   }

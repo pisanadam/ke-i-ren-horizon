@@ -19,7 +19,7 @@ export class MiniMap {
     }, { passive: false });
   }
 
-  draw(vehicle, traffic, districtName, waypoint) {
+  draw(vehicle, traffic, districtName, waypoint, peers = null) {
     const ctx = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -78,6 +78,58 @@ export class MiniMap {
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
     });
 
+    /**
+     * The people you are playing with.
+     *
+     * Drawn last of the overlays and never dropped when they leave the disc —
+     * a friend is pinned to the rim in the direction they are in, because
+     * "which way is he?" is the whole reason to look.
+     */
+    if (peers && peers.size) {
+      const R = W / 2 - 9;
+      ctx.font = '700 8.5px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      for (const p of peers.values()) {
+        if (p.mapX === null) continue;
+        const s = toScreen(p.mapX, p.mapZ);
+        let dx = s.x - W / 2;
+        let dy = s.y - H / 2;
+        const d = Math.hypot(dx, dy);
+        const off = d > R;
+        if (off && d > 0) { dx = (dx / d) * R; dy = (dy / d) * R; }
+        const cx2 = W / 2 + dx;
+        const cy2 = H / 2 + dy;
+        const tint = peerColour(p);
+
+        ctx.beginPath();
+        ctx.arc(cx2, cy2, off ? 3.4 : 4.4, 0, Math.PI * 2);
+        ctx.fillStyle = tint;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(6,12,20,0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        if (off) {
+          // a little spike outwards, so it reads as "over there" not "here"
+          const a = Math.atan2(dy, dx);
+          ctx.beginPath();
+          ctx.moveTo(cx2 + Math.cos(a) * 8, cy2 + Math.sin(a) * 8);
+          ctx.lineTo(cx2 + Math.cos(a + 2.5) * 4.6, cy2 + Math.sin(a + 2.5) * 4.6);
+          ctx.lineTo(cx2 + Math.cos(a - 2.5) * 4.6, cy2 + Math.sin(a - 2.5) * 4.6);
+          ctx.closePath();
+          ctx.fillStyle = tint;
+          ctx.fill();
+        } else if (zoom > 0.22) {
+          const name = (p.name || '').slice(0, 10);
+          ctx.fillStyle = 'rgba(6,12,20,0.75)';
+          const w = ctx.measureText(name).width + 6;
+          ctx.fillRect(cx2 - w / 2, cy2 - 16, w, 10);
+          ctx.fillStyle = tint;
+          ctx.fillText(name, cx2, cy2 - 8);
+        }
+      }
+    }
+
     // marked destination, clamped to the rim when it is off the map
     if (waypoint) {
       const p = toScreen(waypoint.x, waypoint.z);
@@ -125,6 +177,21 @@ export class MiniMap {
       this.label.innerHTML = `${districtName} · <span>${Math.round(px)}, ${Math.round(pz)}</span>`;
     }
   }
+}
+
+/**
+ * A colour for one other player.
+ *
+ * Their car's paint if we have heard which car they are in — you look for the
+ * red dot because your friend is in the red one — and otherwise a fixed hue
+ * off their id, so two friends never come out the same colour.
+ */
+export function peerColour(peer) {
+  if (peer.colour !== null && peer.colour !== undefined) {
+    return `#${(peer.colour & 0xffffff).toString(16).padStart(6, '0')}`;
+  }
+  const hue = (Math.abs(peer.id | 0) * 47) % 360;
+  return `hsl(${hue}, 82%, 62%)`;
 }
 
 export function drawFlag(ctx, x, y, hollow = false) {

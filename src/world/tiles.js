@@ -21,6 +21,27 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const TILE = 560;
 
+/**
+ * Some layers are worth cutting into bigger pieces than others.
+ *
+ * A tile is a draw call, and a tile is also the unit of culling — so the right
+ * size depends on how much geometry a layer puts in one. Measured at the city
+ * centre, the tarmac was 52 tiles for fourteen thousand triangles: 767
+ * triangles a call, which is a call spent on nothing. Facades and roofs are
+ * the same story. Doubling the tile for those trades a few thousand triangles
+ * you will not notice for draw calls you will. The busy layers — roof clutter,
+ * trees, street furniture — keep the small tile, because for them the culling
+ * is the whole point.
+ */
+const LAYER_TILE = [
+  [/^(asphalt|embankments|roofs|pavement|shops|metro-)/, 1120]
+];
+
+function tileFor(name) {
+  for (const [re, size] of LAYER_TILE) if (re.test(name)) return size;
+  return TILE;
+}
+
 const key = (ix, iz) => `${ix}:${iz}`;
 
 /** Centre of a geometry, used to decide which tile it belongs to. */
@@ -107,13 +128,14 @@ export function mergeByTile(geos, material, name, opts = {}) {
   const set = new TileSet(name);
   const buckets = new Map();
   const c = { x: 0, z: 0 };
+  const size = opts.tile ?? tileFor(name);
 
   for (let i = 0; i < geos.length; i++) {
     const geo = geos[i];
     if (!geo) continue;
     centroid(geo, c);
-    const ix = Math.floor(c.x / TILE);
-    const iz = Math.floor(c.z / TILE);
+    const ix = Math.floor(c.x / size);
+    const iz = Math.floor(c.z / size);
     const k = key(ix, iz);
     let b = buckets.get(k);
     if (!b) buckets.set(k, (b = { ix, iz, geos: [], idx: [], verts: 0 }));
@@ -142,9 +164,9 @@ export function mergeByTile(geos, material, name, opts = {}) {
     set.group.add(mesh);
     set.tiles.push({
       mesh,
-      cx: sph ? sph.center.x : (b.ix + 0.5) * TILE,
-      cz: sph ? sph.center.z : (b.iz + 0.5) * TILE,
-      r: sph ? sph.radius : TILE
+      cx: sph ? sph.center.x : (b.ix + 0.5) * size,
+      cz: sph ? sph.center.z : (b.iz + 0.5) * size,
+      r: sph ? sph.radius : size
     });
     for (const i of b.idx) if (set.placed[i]) set.placed[i].mesh = mesh;
   }

@@ -18,6 +18,8 @@ const SPAWN_MIN = 65;
  * Measured: wheels alone were 47% of one, and there are ninety of them.
  */
 const DETAIL_DIST = 95;
+/** And past this only the shape and the colour of one are left. */
+const BODY_DIST = 210;
 const SPAWN_MAX = QUALITY.trafficSpawnMax;
 const DESPAWN = QUALITY.trafficSpawnMax + 100;
 
@@ -71,8 +73,19 @@ export class Traffic {
       const detailMat = CAR_MATERIALS.detail();
       const glassMat = CAR_MATERIALS.glass();
 
+      /**
+       * Two sets of the same body, near and far.
+       *
+       * An InstancedMesh casts a shadow or it does not; there is no deciding
+       * per instance. Splitting the buffer in two is what lets the cars beside
+       * you throw a shadow while the ninety on the far side of the district
+       * stay out of the shadow map altogether — measured at 127k triangles a
+       * frame of shadow nobody could resolve.
+       */
       const paint = new THREE.InstancedMesh(parts.paint, paintMat, MAX_AGENTS);
+      const paintFar = new THREE.InstancedMesh(parts.paint, paintMat, MAX_AGENTS);
       const detail = parts.detail ? new THREE.InstancedMesh(parts.detail, detailMat, MAX_AGENTS) : null;
+      const detailFar = parts.detail ? new THREE.InstancedMesh(parts.detail, detailMat, MAX_AGENTS) : null;
       const glass = parts.glass ? new THREE.InstancedMesh(parts.glass, glassMat, MAX_AGENTS) : null;
       const glow = parts.glow ? new THREE.InstancedMesh(parts.glow, this.glowMaterial, MAX_AGENTS) : null;
       const wheels = new THREE.InstancedMesh(parts.wheel, detailMat, MAX_AGENTS * 4);
@@ -84,10 +97,18 @@ export class Traffic {
         m.frustumCulled = false;
         dummyGroup.add(m);
       }
+      for (const m of [paintFar, detailFar]) {
+        if (!m) continue;
+        m.castShadow = false;
+        m.receiveShadow = true;
+        m.count = 0;
+        m.frustumCulled = false;
+        dummyGroup.add(m);
+      }
 
       this.types.push({
-        spec, entry, parts, paint, detail, glass, glow, wheels,
-        cursor: 0, wheelCursor: 0
+        spec, entry, parts, paint, paintFar, detail, detailFar, glass, glow, wheels,
+        cursor: 0, farCursor: 0, midCount: 0, wheelCursor: 0
       });
     }
 
@@ -487,14 +508,16 @@ export class Traffic {
     const fx = focus?.x ?? 0;
     const fz = focus?.z ?? 0;
     const near2 = DETAIL_DIST * DETAIL_DIST;
+    const mid2 = BODY_DIST * BODY_DIST;
 
     for (const t of this.types) {
       t.cursor = 0;
+      t.farCursor = 0;
+      t.midCount = 0;
       t.wheelCursor = 0;
-      t.nearCount = 0;
     }
 
-    const place = (a, t, i) => {
+    const pose = (a) => {
       dummy.position.set(a.x, a.y, a.z);
       if (a.body) {
         // a car in the air is not upright, so it needs the whole rotation
@@ -504,12 +527,9 @@ export class Traffic {
       }
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
-      t.paint.setMatrixAt(i, dummy.matrix);
-      t.paint.setColorAt(i, a.colour);
-      if (t.detail) t.detail.setMatrixAt(i, dummy.matrix);
     };
 
-    // ---- the ones close enough to look at ------------------------------
+    // ---- close enough to look at: everything, and a shadow -------------
     for (const a of this.agents) {
       if (!a.active) continue;
       const dx = a.x - fx;
@@ -518,8 +538,10 @@ export class Traffic {
       const t = this.types[a.type];
       const i = t.cursor++;
       if (i >= MAX_AGENTS) continue;
-      place(a, t, i);
-      t.nearCount = t.cursor;
+      pose(a);
+      t.paint.setMatrixAt(i, dummy.matrix);
+      t.paint.setColorAt(i, a.colour);
+      if (t.detail) t.detail.setMatrixAt(i, dummy.matrix);
       if (t.glass) t.glass.setMatrixAt(i, dummy.matrix);
       if (t.glow) t.glow.setMatrixAt(i, dummy.matrix);
 
@@ -536,25 +558,48 @@ export class Traffic {
       }
     }
 
-    // ---- and the rest, as bodywork only --------------------------------
+    // ---- down the street: body and trim, no shadow ---------------------
     for (const a of this.agents) {
       if (!a.active) continue;
       const dx = a.x - fx;
       const dz = a.z - fz;
-      if (dx * dx + dz * dz <= near2) continue;
+      const d2 = dx * dx + dz * dz;
+      if (d2 <= near2 || d2 > mid2) continue;
       const t = this.types[a.type];
-      const i = t.cursor++;
+      const i = t.farCursor++;
       if (i >= MAX_AGENTS) continue;
-      place(a, t, i);
+      pose(a);
+      t.paintFar.setMatrixAt(i, dummy.matrix);
+      t.paintFar.setColorAt(i, a.colour);
+      if (t.detailFar) t.detailFar.setMatrixAt(i, dummy.matrix);
+      t.midCount = t.farCursor;
+    }
+
+    // ---- and the far end of the district: a shape and a colour ---------
+    for (const a of this.agents) {
+      if (!a.active) continue;
+      const dx = a.x - fx;
+      const dz = a.z - fz;
+      if (dx * dx + dz * dz <= mid2) continue;
+      const t = this.types[a.type];
+      const i = t.farCursor++;
+      if (i >= MAX_AGENTS) continue;
+      pose(a);
+      t.paintFar.setMatrixAt(i, dummy.matrix);
+      t.paintFar.setColorAt(i, a.colour);
     }
 
     for (const t of this.types) {
       t.paint.count = t.cursor;
       t.paint.instanceMatrix.needsUpdate = true;
       if (t.paint.instanceColor) t.paint.instanceColor.needsUpdate = true;
+      t.paintFar.count = t.farCursor;
+      t.paintFar.instanceMatrix.needsUpdate = true;
+      if (t.paintFar.instanceColor) t.paintFar.instanceColor.needsUpdate = true;
       if (t.detail) { t.detail.count = t.cursor; t.detail.instanceMatrix.needsUpdate = true; }
-      if (t.glass) { t.glass.count = t.nearCount; t.glass.instanceMatrix.needsUpdate = true; }
-      if (t.glow) { t.glow.count = t.nearCount; t.glow.instanceMatrix.needsUpdate = true; }
+      if (t.detailFar) { t.detailFar.count = t.midCount; t.detailFar.instanceMatrix.needsUpdate = true; }
+      if (t.glass) { t.glass.count = t.cursor; t.glass.instanceMatrix.needsUpdate = true; }
+      if (t.glow) { t.glow.count = t.cursor; t.glow.instanceMatrix.needsUpdate = true; }
       t.wheels.count = t.wheelCursor;
       t.wheels.instanceMatrix.needsUpdate = true;
     }

@@ -1,6 +1,6 @@
 import { clamp } from '../util/math.js';
 import { MAP } from '../world/mapData.js';
-import { drawFlag } from './minimap.js';
+import { drawFlag, peerColour } from './minimap.js';
 
 /**
  * Full-screen street map. Opens over the game, pans and zooms with mouse or
@@ -220,6 +220,41 @@ export class MapView {
       if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) return;
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
     });
+
+    // the people you are playing with, with their names on
+    const peers = this.game.coop?.peers;
+    if (peers && peers.size) {
+      ctx.font = '700 11px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      for (const pl of peers.values()) {
+        if (pl.mapX === null) continue;
+        const p = this._worldToScreen(pl.mapX, pl.mapZ);
+        if (p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) continue;
+        const tint = peerColour(pl);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(-pl.mapYaw + Math.PI);
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(5, 6.5);
+        ctx.lineTo(0, 3.6);
+        ctx.lineTo(-5, 6.5);
+        ctx.closePath();
+        ctx.fillStyle = tint;
+        ctx.strokeStyle = 'rgba(6,12,20,0.9)';
+        ctx.lineWidth = 1.4;
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        const name = (pl.name || '').slice(0, 14);
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(name, p.x, p.y - 12);
+        ctx.fillStyle = tint;
+        ctx.fillText(name, p.x, p.y - 12);
+      }
+    }
 
     const v = this.game.vehicle;
     const wp = this.game.waypoint;

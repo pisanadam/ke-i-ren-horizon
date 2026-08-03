@@ -30,6 +30,12 @@ class RemotePlayer {
     this.lastSeen = 0;
     this.specId = null;
     this.colour = null;
+    /** Null until the first packet lands; the maps skip a player without one. */
+    this.mapX = null;
+    this.mapZ = null;
+    this.mapYaw = 0;
+    this.mapSpeed = 0;
+    this.mapFoot = false;
     this.car = null;
     this.onFootModel = null;
     this.walkPhase = 0;
@@ -137,7 +143,16 @@ class RemotePlayer {
       speed = a.sp;
     }
 
+    // Where the maps look this player up. It is kept here rather than read off
+    // the model because the model is only worth moving when it is on screen,
+    // while the map wants your friend's position from the other side of Ankara.
+    this.mapX = x;
+    this.mapZ = z;
+    this.mapYaw = yaw;
+    this.mapSpeed = speed;
+
     const snap = b ?? a;
+    this.mapFoot = !!snap.foot;
     if (snap.foot) {
       this._ensurePerson();
       if (this.car) this.car.group.visible = false;

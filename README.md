@@ -77,6 +77,11 @@ Tek nokta arıza olmasın diye her mesaj **iki aynaya** birden gönderilir
 tekilleştirilir. Servisin mesaj sınırını aşan oturum tanımları numaralı
 parçalara bölünüp karşıda birleştirilir.
 
+**Arkadaşın haritada.** Odaya giren herkes hem köşedeki küçük haritada hem de
+tam ekran haritada görünür: aracının renginde bir işaret ve adı. Küçük haritanın
+dışında kalanlar kaybolmaz, hangi yöndeyse çemberin o kenarına sivri uçlu bir
+işaretle tutturulur — "nerede bu?" sorusunun cevabı haritaya bakmanın sebebidir.
+
 **Olmuyorsa ne olduğunu söyler.** Bağlanamamanın iki ayrı sebebi var ve
 ikisinin çaresi ayrı. 7 saniye içinde aracıya tek bir mesaj bile geçmediyse
 ekran *"buluşma servisine ulaşılamıyor"* der ve elle bağlanma bölümünü kendisi
@@ -365,7 +370,7 @@ küçük harita otomatik olarak güncellenir.
 
 ## Performans notları
 
-Masaüstünde, şehrin ortasında, sahne karede ~1,32 milyon üçgen ve ~383 çizim
+Masaüstünde, şehrin ortasında, sahne karede ~1,16 milyon üçgen ve ~333 çizim
 çağrısı üretir (ölçüldü; aynı yer daha önce 2,21 milyon üçgen ve 521 çağrıydı).
 Geometriler malzeme başına birleştirilir; ağaçlar, lambalar ve trafik
 `InstancedMesh` ile çizilir. Oyuncunun aracı yaklaşık 22.000 üçgenlik yoğun bir
@@ -386,10 +391,20 @@ Kareyi asıl ucuzlatan dört şey, hepsi ölçüme bakılarak seçildi:
 - **İki kademeli arazi.** Aracın çevresindeki 3×3 kare sekiz metre çözünürlükte
   örülür, ötesi on altı metrede — arazi 450 binden 134 bin üçgene iner. Uzak
   ağ 28 cm aşağı çekilir, yoksa köşe kesen yamaç asfaltın içinden çıkar.
-- **Trafik LOD'u.** Bir trafik arabasının 3.688 üçgeninin %47'si tekerlekti;
-  arkadaki araçlar artık 72 üçgenlik tekerlek kullanıyor ve 95 metreden sonra
-  camı, lambası ve tekerleği hiç çizilmiyor.
+- **Üç kademeli trafik.** Bir trafik arabasının 3.688 üçgeninin %47'si
+  tekerlekti; arkadaki araçlar artık 72 üçgenlik tekerlek kullanıyor. 95
+  metreye kadar her şey ve gölge, 210 metreye kadar gövde ile tampon, ötesinde
+  yalnız gövde. Yakın ve uzak takım ayrı `InstancedMesh`'ler: bir örnek yığını
+  ya tamamen gölge atar ya hiç atmaz, ikiye bölmenin sebebi bu.
+- **Katman başına parça boyu.** Bir parça hem bir çizim çağrısı hem de eleme
+  birimi, dolayısıyla doğru boy katmanın ne kadar geometri taşıdığına bağlı.
+  Asfalt çağrı başına 767 üçgendi — boşa harcanan bir çağrı; asfalt, şev, çatı,
+  kaldırım, dükkân ve metro artık iki kat büyük parçalarda. Cepheler küçük
+  parçada kaldı: onlarda eleme, kazanılan çağrıdan değerli.
+- **Kapaksız ağaç gövdesi.** Alt kapak toprağın içinde, üst kapak tacın
+  içindeydi: gövdenin 24 üçgeninin 12'si, üç bin ağaç çarpı.
 
+Gölge pası 252 bin üçgen ve 49 çağrıdan 56 bin üçgen ve 16 çağrıya indi.
 Sürerken kare başına CPU 3,23 ms'den 2,64 ms'ye, yeni araziye girerken en kötü
 kare 90,6 ms'den 30,1 ms'ye indi: bir kare artık bölünmez bir iş değil, önce
 ucuz kaba ağ konur, ince ağ birkaç kare sonra sırasını bulur.

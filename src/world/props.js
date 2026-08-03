@@ -476,7 +476,10 @@ export function buildProps(network, ground, colliders) {
   }
 
   // ---- trees (instanced, one mesh per tile) ------------------------------
-  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 6);
+  // Open-ended: the bottom cap is in the ground and the top one is inside the
+  // canopy, so between them they were twelve of the trunk's twenty-four
+  // triangles, times the three thousand trees in shot.
+  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 3.0, 6, 1, true);
   trunkGeo.translate(0, 1.5, 0);
   const canopyGeo = new THREE.IcosahedronGeometry(2.15, 0);
   canopyGeo.scale(1, 1.18, 1);
