@@ -253,7 +253,9 @@ bağlıdır; bu yüzden dikiş yerlerinde üst üste duran ikizler hep birlikte 
 eder ve gövde asla yırtılmaz (ölçüldü: en kötü dikiş açıklığı 1,2 × 10⁻⁷ m).
 Göstergedeki **HASAR** çubuğu dolunca — üç şeritte 150 ile duvara, ya da birkaç
 binadan geçerek — araç patlar: alev, is, 18 parça enkaz ve yeni bir araç.
-`R` her an kaportayı düzeltir.
+`R` her an kaportayı düzeltir. Patlamayı istemiyorsan **Ayarlar → Oyun →
+Araç hurdaya çıksın** kapatılır: kaporta yine yamulur ama araç asla hurdaya
+çıkmaz.
 
 **Gece / gündüz.** Saat sürekli akar. Güneşin açısına göre gökyüzü, sis,
 gölgeler, yıldızlar ve ay değişir; hava kararınca apartman pencereleri yanar,

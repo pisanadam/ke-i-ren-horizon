@@ -132,6 +132,13 @@ const DEFS = [
     def: () => 1
   },
   {
+    tab: 'oyun', key: 'wreck', label: 'Araç hurdaya çıksın', live: true,
+    values: [{ v: 1, t: 'Açık' }, { v: 0, t: 'Kapalı' }],
+    def: () => 1,
+    note: 'Kapalıyken kaporta yine yamulur ama araç hiçbir zaman patlamaz; ' +
+      'hasar göstergesi dolu kalır ve sürmeye devam edersin.'
+  },
+  {
     tab: 'oyun', key: 'camShake', label: 'Kamera sarsıntısı', live: true,
     values: [{ v: 0, t: 'Kapalı' }, { v: 0.5, t: 'Az' }, { v: 1, t: 'Normal' }],
     def: () => 1
@@ -332,5 +339,10 @@ export class Settings {
     g.clockScale = v.clockSpeed;
     g.shakeScale = v.camShake;
     g.useMph = !!v.units;
+
+    // Turning wrecking off while you are watching your own car burn should
+    // give it back rather than make you sit out the rest of the countdown.
+    g.canWreck = !!v.wreck;
+    if (!g.canWreck && g.vehicle?.dead && g.state === 'driving') g._reviveCar();
   }
 }

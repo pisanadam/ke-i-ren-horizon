@@ -69,6 +69,7 @@ class Game {
     this.clockScale = 1;
     this.shakeScale = 1;
     this.useMph = false;
+    this.canWreck = true;
     this._ambientAcc = 0;
     // How long the world streamer may spend building ground each frame.
     // More cores means more headroom for it without costing frame rate.
@@ -912,8 +913,13 @@ class Game {
     }
 
     if (v.damage >= 1) {
-      this._wreckCar();
-      return;
+      // With wrecking switched off the shell still takes everything it can —
+      // it simply never gives up. The bar sits full and you drive on in it.
+      if (this.canWreck) {
+        this._wreckCar();
+        return;
+      }
+      v.damage = 0.995;
     }
 
     // Past two thirds gone the engine bay starts smoking, which is the only
