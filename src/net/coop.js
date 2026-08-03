@@ -191,33 +191,38 @@ export class Coop {
     this._acc = 0;
     this._seq = 0;
     this.onChange = () => {};
+    /** 'signal' when the meeting service is unreachable, 'peer' when nobody came. */
+    this.onTrouble = () => {};
+    this.isHost = false;
   }
 
   get count() { return this.peers.size + (this.active ? 1 : 0); }
 
   /**
-   * Opens or joins a room.
+   * Joins a room. Whoever gets there first ends up hosting it; nobody has to
+   * decide that, and there is no wrong button to press.
    * @param {string} code six digits
    * @param {string} name what to call this player
-   * @param {boolean} isHost true to open the room, false to join someone's
+   * @param {boolean|null} [isHost] forced role, for tests
    */
-  join(code, name, isHost = false) {
+  join(code, name, isHost = null) {
     this.leave();
     this.name = name || 'Oyuncu';
-    this.isHost = !!isHost;
     this.room = String(code).replace(/\D/g, '').slice(0, 6);
     if (this.room.length !== 6) {
       this.status = 'kod 6 haneli olmalı';
       this.onChange();
       return false;
     }
-    this.status = isHost ? 'oda açılıyor…' : 'bağlanılıyor…';
+    this.status = 'bağlanılıyor…';
     this.onChange();
 
     this.tp = new RtcTransport(this.room, this.name, isHost);
+    this.tp.onTrouble = (kind) => this.onTrouble?.(kind);
     this.tp.onOpen = (msg) => {
       this.active = true;
-      this.status = isHost ? 'oda açık' : 'bağlandı';
+      this.isHost = this.tp.isHost;
+      this.status = this.tp.isHost ? 'oda hazır' : 'bağlandı';
       for (const p of msg.peers || []) this._add(p.id, p.name);
       this.onChange();
     };

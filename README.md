@@ -53,10 +53,17 @@ Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
 adın. Aynı kodu giren herkes aynı Ankara'da buluşur; arkadaşının aracı
 haritada ve yolda görünür.
 
-Bir kişi **ODA KUR** der, ekrandaki kodu söyler; diğeri aynı kodu yazıp
-**KATIL** der. Kurulum yok, sunucu yok: bağlantı kurulduktan sonra araçlar
-WebRTC veri kanalıyla doğrudan cihazdan cihaza gider. Oyun verisi kimsenin
-sunucusundan geçmez.
+**İkiniz de aynı kodu yazıp BAĞLAN diyorsunuz** — kimin oda kuracağına oyun
+kendi karar veriyor, yanlış düğme diye bir şey yok. Kurulum yok, sunucu yok:
+bağlantı kurulduktan sonra araçlar WebRTC veri kanalıyla doğrudan cihazdan
+cihaza gider. Oyun verisi kimsenin sunucusundan geçmez.
+
+Roller şöyle dağıtılıyor: iki taraf da odanın `-lobby` konusuna bir selam
+bırakır, kısa bir dinleme penceresinden sonra **küçük id odayı alır**. Sonradan
+gelen, oda sahibinin "buradayım" cevabını duyup id'sine bakmadan misafir olur.
+Selam kaybolur da iki oda birden açılırsa taraflar birbirini duyduğu anda
+büyük id çekilip misafir olarak geri girer. (Eskiden bunu düğmeyle seçmek
+gerekiyordu; ikisi de aynı düğmeye basınca oda sessizce hiç kurulmuyordu.)
 
 Tek bir yerde dışarıya ihtiyaç var: iki cihazın birbirini **bulması**. WebRTC
 bağlanmadan önce iki tarafın adres bilgisini (SDP ve ICE adayları) takas
@@ -69,6 +76,12 @@ Tek nokta arıza olmasın diye her mesaj **iki aynaya** birden gönderilir
 (`ntfy.sh` ve `ntfy.envs.net`) ve ikisi birden dinlenir; aynı mesaj id'siyle
 tekilleştirilir. Servisin mesaj sınırını aşan oturum tanımları numaralı
 parçalara bölünüp karşıda birleştirilir.
+
+**Olmuyorsa ne olduğunu söyler.** Bağlanamamanın iki ayrı sebebi var ve
+ikisinin çaresi ayrı. 7 saniye içinde aracıya tek bir mesaj bile geçmediyse
+ekran *"buluşma servisine ulaşılamıyor"* der ve elle bağlanma bölümünü kendisi
+açar. Mesajlar gidiyor ama 32 saniyede kimse gelmediyse *"arkadaşına
+ulaşılamadı"* der. Sessizce dönen bir tekerlek yok.
 
 **Aracı engellenirse.** Okul ve iş ağları böyle servisleri kapatabiliyor. O
 zaman co-op ekranındaki *Elle bağlan* bölümünden kendi kodunu üretip

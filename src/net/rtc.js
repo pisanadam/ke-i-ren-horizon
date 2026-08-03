@@ -10,9 +10,11 @@ import { sigSend, sigOpen } from './signal.js';
  * anybody else's machine.
  *
  * The one thing that cannot be done peer-to-peer is the introduction — see
- * signal.js for how the code turns into a meeting point. Roles there are
- * fixed: **the guest offers and the host answers**, which also settles who
- * creates the data channel, since in WebRTC that has to be the offering side.
+ * signal.js for how the code turns into a meeting point. **The guest offers
+ * and the host answers**, which also settles who creates the data channel,
+ * since in WebRTC that has to be the offering side. Which of the two you are
+ * is not something anybody has to choose: both sides say hello on the room's
+ * lobby topic and the room settles it (see `_chooseRole`).
  *
  * Topology is a star. Guests talk only to the host; the host repeats what it
  * hears to everybody else. Two guests never open a connection to each other,
@@ -29,6 +31,11 @@ const RTC_CONFIG = {
 const PREFIX = 'anksur';
 const OFFER_TRIES = 12;
 const OFFER_EVERY = 2000;
+/** How long the two sides listen for each other before settling who hosts. */
+const ROLE_WINDOW = 2600;
+/** After this, a room with nothing in it says so instead of spinning for ever. */
+const SIGNAL_GRACE = 7000;
+const PEER_GRACE = 32000;
 
 const rid = () => Math.floor(Math.random() * 1e9) + 1;
 
@@ -59,13 +66,15 @@ export class RtcTransport {
   /**
    * @param {string} room six-digit code
    * @param {string} name display name
-   * @param {boolean} isHost true to answer offers, false to make one
+   * @param {boolean|null} isHost true to answer offers, false to make one,
+   *   null (the normal case) to work it out with whoever else is in the room
    * @param {{send:Function, open:Function}} [signal] swappable so the
    *   handshake can be exercised without a live signalling service
    */
   constructor(room, name, isHost, signal) {
     this.room = String(room);
     this.name = name;
+    this.auto = isHost === null || isHost === undefined;
     this.isHost = !!isHost;
     this.sigSend = signal?.send ?? sigSend;
     this.sigOpen = signal?.open ?? sigOpen;
@@ -75,27 +84,157 @@ export class RtcTransport {
     this.onMessage = () => {};
     this.onClose = () => {};
     this.onStatus = () => {};
+    /** Called with 'signal' or 'peer' when a room is not going to happen. */
+    this.onTrouble = () => {};
     this._sigs = [];
     this._timers = [];
     this._closed = false;
+    this._sent = 0;
+    this._sendFails = 0;
   }
 
   get topic() { return `${PREFIX}-${this.room}`; }
 
   connect() {
-    if (this.isHost) this._host();
+    this._watch();
+    if (this.auto) this._chooseRole();
+    else if (this.isHost) this._host();
     else this._guest();
+  }
+
+  /** Publishes, and remembers whether the signalling service is answering. */
+  _pub(topic, obj) {
+    return Promise.resolve(this.sigSend(topic, obj)).then(
+      (ok) => { if (ok === false) this._sendFails++; else this._sent++; return ok; },
+      () => { this._sendFails++; return false; }
+    );
+  }
+
+  /**
+   * Who hosts, decided by the room rather than by which button was pressed.
+   *
+   * Both sides used to need one person on ODA KUR and the other on KATIL, and
+   * getting that wrong looked exactly like a working room: two hosts sit
+   * listening for an offer nobody makes, two guests offer into an empty room,
+   * and neither screen ever says anything is wrong. Now both sides just say
+   * hello on the same topic and the lower id takes the room. Anyone arriving
+   * later hears "I am the host" and joins as a guest whatever its id is.
+   */
+  _chooseRole() {
+    this.onStatus('oda aranıyor…');
+    const heard = new Set();
+    let decided = false;
+
+    const settle = (asHost) => {
+      if (decided || this._closed) return;
+      decided = true;
+      this.isHost = asHost;
+      if (asHost) this._host();
+      else this._guest();
+    };
+
+    this._sigs.push(this.sigOpen(`${this.topic}-lobby`, (msg) => {
+      if (this._closed || msg.t !== 'hi' || !msg.from || msg.from === this.id) return;
+
+      if (decided) {
+        if (!this.isHost) return;
+        // Someone new knocking on a room we are running: answer so they stop
+        // deliberating and offer straight away.
+        if (!msg.host) { this._sayHi(true); return; }
+        // Two rooms ended up open because a hello went missing. The lower id
+        // keeps the room and the other one comes back in as a guest — from
+        // both sides, so it resolves whichever of us noticed first.
+        if (this._anyOpen()) return;
+        if (msg.from < this.id) this._standDown();
+        else this._sayHi(true);
+        return;
+      }
+
+      heard.add(msg.from);
+      if (msg.host) settle(false);
+    }));
+
+    this._sayHi(false);
+    // one repeat, for the hello that left before the other side was listening
+    this._timers.push(setTimeout(() => { if (!decided) this._sayHi(false); }, 950));
+    this._timers.push(setTimeout(() => {
+      let lowest = this.id;
+      for (const id of heard) if (id < lowest) lowest = id;
+      settle(lowest === this.id);
+    }, ROLE_WINDOW));
+  }
+
+  _sayHi(asHost) {
+    return this._pub(`${this.topic}-lobby`, {
+      t: 'hi', from: this.id, name: this.name, host: !!asHost
+    });
+  }
+
+  _anyOpen() {
+    for (const [, c] of this.conns) if (c.ch?.readyState === 'open') return true;
+    return false;
+  }
+
+  /** Says the room is really up, once and once only. */
+  _roomLive() {
+    if (this._openSaid || this._closed) return;
+    this._openSaid = true;
+    this.onOpen({ id: this.id, peers: [] });
+  }
+
+  /** Gives up the room to a lower id and joins as a guest instead. */
+  _standDown() {
+    if (this._stood || this._closed) return;
+    this._stood = true;
+    for (const [, c] of this.conns) { try { c.pc.close(); } catch { /* zaten kapalı */ } }
+    this.conns.clear();
+    this.isHost = false;
+    this._guest();
+  }
+
+  /**
+   * Says out loud when a room is not going to happen.
+   *
+   * The two ways it fails need different answers from the player and used to
+   * look identical: an endless "bağlanılıyor…". If nothing reaches the
+   * signalling service the network is blocking it and the copy-and-paste code
+   * is the way through; if the handshake went fine but no channel ever opens,
+   * the two networks will not let the devices talk directly.
+   */
+  _watch() {
+    this._timers.push(setTimeout(() => {
+      if (this._closed || this._anyOpen()) return;
+      const listening = this._sigs.some((s) => s.alive?.() > 0);
+      if (this._sent === 0 || !listening) {
+        this.onStatus('buluşma servisine ulaşılamıyor — ağ engelliyor olabilir');
+        this.onTrouble('signal');
+      }
+    }, SIGNAL_GRACE));
+
+    this._timers.push(setTimeout(() => {
+      if (this._closed || this._anyOpen()) return;
+      this.onStatus(this._sent === 0
+        ? 'bağlanılamadı — aşağıdan elle bağlanmayı dene'
+        : 'arkadaşına ulaşılamadı — ikinizden biri odaya girmemiş olabilir');
+      this.onTrouble(this._sent === 0 ? 'signal' : 'peer');
+    }, PEER_GRACE));
   }
 
   // ------------------------------------------------------------------ host
   _host() {
-    this.onStatus('oda açık — kodu arkadaşına ver');
-    // The host is reachable the moment the room is listening; guests can
-    // trickle in later without anything else having to happen.
-    this.onOpen({ id: this.id, peers: [] });
+    this.onStatus('oda hazır — arkadaşın bekleniyor');
+    // The room counts as open once the meeting point has actually taken a
+    // message from us. Announcing it the moment we decide to host is how a
+    // room on a network that blocks the service used to look exactly like a
+    // working one: "oda hazır", a green badge, and nothing behind it.
+    this._sayHi(true).then((ok) => { if (ok !== false) this._roomLive(); });
 
     this._sigs.push(this.sigOpen(`${this.topic}-join`, async (msg) => {
       if (this._closed || msg.t !== 'offer' || !msg.from) return;
+      // A side that stood down goes on to offer on this very topic, and it is
+      // still subscribed here: without these two guards it answers its own
+      // offer and connects to itself instead of to the room.
+      if (!this.isHost || msg.from === this.id) return;
       const peerId = msg.from;
 
       // The guest re-offers until it hears back. If it is repeating because
@@ -104,7 +243,7 @@ export class RtcTransport {
       const known = this.conns.get(peerId);
       if (known) {
         if (known.answer && known.ch?.readyState !== 'open') {
-          this.sigSend(`${this.topic}-ans-${peerId}`, {
+          this._pub(`${this.topic}-ans-${peerId}`, {
             t: 'answer', from: this.id, name: this.name, sdp: known.answer
           });
         }
@@ -118,7 +257,7 @@ export class RtcTransport {
         const answer = await conn.pc.createAnswer();
         await conn.pc.setLocalDescription(answer);
         conn.answer = answer.sdp;
-        await this.sigSend(`${this.topic}-ans-${peerId}`, {
+        await this._pub(`${this.topic}-ans-${peerId}`, {
           t: 'answer', from: this.id, name: this.name, sdp: answer.sdp
         });
       } catch {
@@ -146,7 +285,7 @@ export class RtcTransport {
     let sends = 0;
     const publish = () => {
       if (this._closed || !conn.cands.length) return;
-      this.sigSend(topic, { t: 'ice', cs: conn.cands });
+      this._pub(topic, { t: 'ice', cs: conn.cands });
     };
     conn.pc.onicecandidate = (e) => {
       if (!e.candidate) return;
@@ -200,7 +339,7 @@ export class RtcTransport {
       const push = () => {
         if (this._closed || tries++ >= OFFER_TRIES || this.conns.get(hostId)?.ch?.readyState === 'open') return;
         if (conn.pc.currentRemoteDescription) return;
-        this.sigSend(`${this.topic}-join`, {
+        this._pub(`${this.topic}-join`, {
           t: 'offer', from: this.id, name: this.name, sdp: conn.pc.localDescription.sdp
         });
         this._timers.push(setTimeout(push, OFFER_EVERY));
@@ -253,10 +392,12 @@ export class RtcTransport {
           this._raw(who, { t: 'joined', id, name: c.name });
         }
         this._raw(who, { t: 'joined', id: this.id, name: this.name });
+        // somebody got in, so the room is live whatever the publish said
+        this._roomLive();
         this.onStatus(`bağlı · ${this.conns.size + 1} oyuncu`);
       } else {
         this.onStatus('bağlandı');
-        this.onOpen({ id: this.id, peers: [] });
+        this._roomLive();
         this._raw(who, { t: 'hello', id: this.id, name: this.name });
       }
     };
@@ -362,7 +503,7 @@ export class RtcTransport {
       await conn.pc.setLocalDescription(answer);
       await waitIce(conn.pc);
       this.isHost = true;
-      this.onOpen({ id: this.id, peers: [] });
+      this._roomLive();
       return pack({ n: this.name, i: this.id, s: conn.pc.localDescription.sdp, t: 'a' });
     }
     // we are the guest: finish the connection we already offered

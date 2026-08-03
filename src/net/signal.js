@@ -41,12 +41,18 @@ export async function sigSend(topic, obj) {
   for (let i = 0; i < parts.length; i++) {
     const frame = JSON.stringify({ k: key, i, n: parts.length, d: parts[i] });
     for (const host of MIRRORS) {
+      // A blocked network does not refuse the connection, it swallows it.
+      // Without a deadline the promise never settles, the retries queue up
+      // behind it and nothing ever gets to report that it is not working.
+      const stop = new AbortController();
+      const bell = setTimeout(() => stop.abort(), 9000);
       results.push(
         fetch(`${host}/${encodeURIComponent(topic)}`, {
           method: 'POST',
           body: frame,
-          headers: { Priority: 'high' }
-        }).catch(() => null)
+          headers: { Priority: 'high' },
+          signal: stop.signal
+        }).catch(() => null).finally(() => clearTimeout(bell))
       );
     }
   }

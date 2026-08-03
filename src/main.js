@@ -37,6 +37,7 @@ import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
 import { Settings } from './ui/settings.js';
 import { Coop } from './net/coop.js';
+import { RtcTransport } from './net/rtc.js';
 import { clamp, damp, lerp } from './util/math.js';
 import { installTouchGuards } from './util/touchGuards.js';
 import { QUALITY, IS_TOUCH } from './quality.js';
@@ -672,7 +673,8 @@ class Game {
     const list = document.getElementById('coop-list');
 
     document.getElementById('coop-hint').textContent =
-      'Bir kişi oda kursun, kodu diğerine söylesin. Bağlantı doğrudan cihazlar arasında kurulur.';
+      'İkiniz de aynı 6 haneli kodu yazıp BAĞLAN deyin. Kimin oda kuracağını ' +
+      'oyun kendi seçer; bağlantı doğrudan cihazlar arasında kurulur.';
     nameEl.value = localStorage.getItem('ankara-coop-ad') || '';
     input.value = localStorage.getItem('ankara-coop-oda') || '';
 
@@ -711,22 +713,33 @@ class Game {
       this.coop.leave();
       this.hud.showToast('Co-op kapatıldı', 1.6);
     });
-    const start = (asHost) => {
+    // One button, because there is no longer a wrong one to press: both
+    // players type the same code and the room sorts out who hosts it.
+    document.getElementById('coop-join').addEventListener('click', () => {
       let code = input.value.replace(/\D/g, '');
-      // opening a room without a code in the box would be a dead end
-      if (asHost && code.length !== 6) {
+      if (code.length !== 6) {
         code = String(Math.floor(100000 + Math.random() * 900000));
         input.value = code;
+        this.hud.showToast(`Kod üretildi: ${code} · arkadaşına söyle`, 3.4);
       }
       localStorage.setItem('ankara-coop-oda', code);
       localStorage.setItem('ankara-coop-ad', nameEl.value);
-      if (!this.coop.join(code, nameEl.value || 'Oyuncu', asHost)) return;
+      if (!this.coop.join(code, nameEl.value || 'Oyuncu')) return;
+      this.hud.showToast(`${code} odasına bağlanılıyor…`, 2.6);
+    });
+
+    // When it is not going to work, say why and put the way out on screen
+    // instead of leaving a spinner running for ever.
+    this.coop.onTrouble = (kind) => {
+      const help = document.getElementById('coop-manual-help');
+      if (kind === 'signal' && help) help.open = true;
       this.hud.showToast(
-        asHost ? `Oda kuruldu · kod ${code}` : `${code} odasına bağlanılıyor…`, 2.6
+        kind === 'signal'
+          ? 'Buluşma servisine ulaşılamıyor — ağ engelliyor olabilir, elle bağlanmayı dene'
+          : 'Arkadaşına ulaşılamadı — ikiniz de aynı kodu yazıp BAĞLAN dediniz mi?',
+        5
       );
     };
-    document.getElementById('coop-host').addEventListener('click', () => start(true));
-    document.getElementById('coop-join').addEventListener('click', () => start(false));
 
     // ---- copy-and-paste rescue -----------------------------------------
     const mine = document.getElementById('coop-mine');
@@ -1418,3 +1431,5 @@ game.load().then(() => game.start());
 
 // expose for quick tinkering in the console
 window.kecioren = game;
+// the transport on its own, so a room can be tried without a live service
+window.kecioren.RtcTransport = RtcTransport;
