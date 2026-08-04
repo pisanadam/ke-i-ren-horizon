@@ -409,6 +409,33 @@ Sürerken kare başına CPU 3,23 ms'den 2,64 ms'ye, yeni araziye girerken en kö
 kare 90,6 ms'den 30,1 ms'ye indi: bir kare artık bölünmez bir iş değil, önce
 ucuz kaba ağ konur, ince ağ birkaç kare sonra sırasını bulur.
 
+### Kare hızını sen belirle
+
+Buraya kadarki her şey kareyi belli bir miktar ucuzlatıp yettiğini umuyor.
+**Kare hızı hedefi** ayarı bunun yerine bir hıza nişan alıp orada tutuyor:
+makine yetişemezse sahne daha küçük bir tampona çizilip ekrana ölçekleniyor,
+yer kalınca tampon geri büyüyor. Alt sınır %60 — altında yumuşaklık,
+kazanılan kareden pahalı. Varsayılan 60 fps; kapatırsan çözünürlük senin
+seçtiğin orana sabitlenir.
+
+Değişim küçük ve seyrek: yarım saniyede bir, yirmide bir adımlarla ve hedefin
+%12'lik bandı dışına çıkılmadıkça hiç. Tamponu yeniden boyutlamak bir karelik
+iş, ve inip çıkan bir çözünürlük sabit duran hafif yumuşak bir görüntüden daha
+rahatsız edici.
+
+Ayarların altındaki **PERFORMANS** düğmesi tek dokunuşta hepsini birden
+ayarlar: çözünürlük %75, gölgeler düşük, yansıma yalnız gökyüzü, görüş mesafesi
+normal, parçacıklar az, kenar yumuşatma kapalı. Çözünürlüğün %75'e inmesi tek
+başına doldurulan piksel sayısını 1,78 kat azaltıyor; kenar yumuşatmanın
+kapanması yeni açılışta geçerli olur (çoklu örnekleme bağlam kurulurken
+seçiliyor, sonradan değiştirilemiyor).
+
+**Yansıma sondası.** Araç boyasının yansıttığı ortam haritası altı sahne
+çizimiyle alınıyor. Eskiden araba altı metre gittiğinde yenileniyordu: 60
+km/s'te on saniyede 28 yakalama, yani saniyede 17 fazladan sahne çizimi — hepsi
+64 pikselliğe indirilip bulanıklaştırılan bir küp için. Eşik 22 metreye çıktı,
+on saniyede 28 yakalama 7'ye indi (ölçüldü) ve görüntüde fark yok.
+
 Bütün kademe ayarları tek yerde: `src/quality.js`. Harita, bina ve trafik
 yoğunluğu, gölge çözünürlüğü, arazi çözünürlüğü ve piksel oranı buradan
 belirlenir.

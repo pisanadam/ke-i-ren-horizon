@@ -109,6 +109,21 @@ class Game {
     this.useMph = false;
     this.canWreck = true;
     this._ambientAcc = 0;
+    /**
+     * Dynamic resolution.
+     *
+     * Every other optimisation makes the frame cheaper by a fixed amount and
+     * then hopes it was enough; this one aims at a frame rate and holds it.
+     * The scene is drawn into a smaller buffer and scaled up when the machine
+     * cannot keep up, and the buffer grows back the moment it can — which is
+     * the only way to promise a frame rate without knowing what it is running
+     * on. Held between 60% and 100% of the chosen resolution: below that the
+     * softness costs more than the frames are worth.
+     */
+    this.fpsTarget = 60;
+    this._resAuto = 1;
+    this._resHold = 0;
+    this._frameAvg = 1 / 60;
     // How long the world streamer may spend building ground each frame.
     // More cores means more headroom for it without costing frame rate.
     this.streamBudget = Math.max(3, Math.min(10, (navigator.hardwareConcurrency || 4)));
@@ -116,9 +131,17 @@ class Game {
     installTouchGuards();
 
     this.canvas = document.getElementById('scene');
+    // Multisampling is fixed when the context is made, so unlike everything
+    // else in the settings it has to be read before there is a Settings to
+    // read it from.
+    let aa = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem('ankara-surus-ayarlar') || '{}');
+      if (saved.antialias === 0) aa = false;
+    } catch { /* bozuk kayıt kenarları yumuşak bıraksın */ }
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      antialias: aa,
       powerPreference: 'high-performance'
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
@@ -1166,10 +1189,45 @@ class Game {
         this._fpsFrames = 0;
       }
 
+      this._adaptResolution(dt);
       this.update(dt);
       this.renderer.render(this.scene, this.camera);
     };
     requestAnimationFrame(tick);
+  }
+
+  /**
+   * Keeps the frame rate at the target by moving the resolution.
+   *
+   * The frame time is smoothed hard, because a single long frame is usually a
+   * chunk of ground being built and not a machine that cannot cope. Changes
+   * are small and rare — one twentieth at a time, at most twice a second —
+   * since resizing the drawing buffer costs a frame of its own, and a
+   * resolution that hunts up and down is worse to look at than a slightly soft
+   * one that stays put.
+   */
+  _adaptResolution(dt) {
+    if (!this.fpsTarget) return;
+    this._frameAvg += (Math.min(dt, 0.25) - this._frameAvg) * 0.06;
+    this._resHold -= dt;
+    if (this._resHold > 0) return;
+
+    const target = 1 / this.fpsTarget;
+    const was = this._resAuto;
+    // 12% of headroom either way, so a frame rate sitting on the target is
+    // left alone instead of being nudged every half second
+    if (this._frameAvg > target * 1.12) this._resAuto = Math.max(0.6, was - 0.05);
+    else if (this._frameAvg < target * 0.88) this._resAuto = Math.min(1, was + 0.05);
+    if (this._resAuto === was) return;
+
+    this._resHold = 0.5;
+    this._applyPixelRatio();
+  }
+
+  /** The user's resolution setting, with whatever the auto scaler decided. */
+  _applyPixelRatio() {
+    const base = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio);
+    this.renderer.setPixelRatio(base * (this.resScale ?? 1) * this._resAuto);
   }
 
   update(dt) {

@@ -20,6 +20,18 @@ import { QUALITY } from '../quality.js';
  *     a car must not reflect itself.
  */
 
+/**
+ * How far the car has to travel before the surroundings are worth grabbing
+ * again.
+ *
+ * Six metres meant a fresh capture three times a second at town speeds, and a
+ * capture is six renders of the whole scene — eighteen extra passes over the
+ * city every second to update a sixty-four pixel cube that has been blurred
+ * into an average of the sky and the street. Twenty-two metres is still
+ * inside the same block.
+ */
+const MOVED_ENOUGH = 22;
+
 /** Everything that shows up in a reflection. */
 export const REFLECT_LAYER = 3;
 /** The sky alone — the cheap mode captures only this. */
@@ -48,7 +60,7 @@ export class Reflections {
     // would be filtered straight back out.
     this.size = 64;
     this.mode = mobile ? 'gökyüzü' : 'dinamik';
-    this.interval = mobile ? 1.2 : 0.34;
+    this.interval = mobile ? 1.8 : 0.55;
 
     this._timer = 1e9;          // force a capture on the first update
     this._lastHour = -99;
@@ -119,7 +131,7 @@ export class Reflections {
     const moved = Math.hypot(focus.x - this._lastX, focus.z - this._lastZ);
     const stale = sky
       ? Math.abs(hour - this._lastHour) > 0.12
-      : this._timer >= this.interval && (moved > 6 || this._timer >= this.interval * 6);
+      : this._timer >= this.interval && (moved > MOVED_ENOUGH || this._timer >= this.interval * 6);
     if (!stale) return;
 
     this._timer = 0;

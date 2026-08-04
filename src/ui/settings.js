@@ -50,6 +50,24 @@ const DEFS = [
     note: 'Sahne bu oranda çizilip ekrana ölçeklenir. Düşürmek en çok kare hızı kazandıran ayardır.'
   },
   {
+    tab: 'video', key: 'fpsTarget', label: 'Kare hızı hedefi', live: true,
+    values: [
+      { v: 0, t: 'Kapalı' }, { v: 30, t: '30 fps' }, { v: 60, t: '60 fps' },
+      { v: 90, t: '90 fps' }, { v: 120, t: '120 fps' }
+    ],
+    def: () => 60,
+    note: 'Oyun bu kare hızını tutturmak için çözünürlüğü kendi ayarlar: yetişemezse ' +
+      'düşürür, yer kalınca geri yükseltir (en fazla %40 düşer). Kapalıyken çözünürlük ' +
+      'yukarıdaki orana sabitlenir.'
+  },
+  {
+    tab: 'video', key: 'antialias', label: 'Kenar yumuşatma', reload: true,
+    values: [{ v: 1, t: 'Açık' }, { v: 0, t: 'Kapalı' }],
+    def: () => 1,
+    note: 'Kapatmak zayıf ekran kartlarında gözle görülür kare hızı kazandırır; ' +
+      'karşılığında kenarlar biraz tırtıklı olur.'
+  },
+  {
     tab: 'video', key: 'farClip', label: 'Maks. görüş uzaklığı', live: true,
     values: [
       { v: 600, t: '600 m' }, { v: 1200, t: '1,2 km' }, { v: 2000, t: '2 km' },
@@ -170,6 +188,26 @@ export class Settings {
       });
     }
     document.getElementById('settings-close').addEventListener('click', () => this.close());
+    /**
+     * One press for people who would rather have the frames.
+     *
+     * Everything here is a setting they could reach on their own; the button
+     * exists because knowing *which* five of twelve to move is the hard part.
+     * The two that cost the most for what they give — resolution and the
+     * shadow map — come down furthest, and the shape of the city is left alone
+     * so it still looks like Ankara.
+     */
+    document.getElementById('settings-fast')?.addEventListener('click', () => {
+      Object.assign(this.values, {
+        resScale: 0.75, shadows: 1, reflections: 1, viewDistance: 2,
+        particles: 0.5, fog: 1, fpsTarget: 60, antialias: 0
+      });
+      this._save();
+      this.applyAll();
+      this._render();
+      this._say('Performans ayarları uygulandı. Kenar yumuşatma yeni açılışta kapanır.');
+    });
+
     document.getElementById('settings-reset').addEventListener('click', () => {
       for (const d of DEFS) this.values[d.key] = d.def();
       this._save();
@@ -298,9 +336,10 @@ export class Settings {
     const g = this.game;
     const v = this.values;
 
-    g.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio) * v.resScale
-    );
+    g.resScale = v.resScale;
+    g.fpsTarget = v.fpsTarget;
+    if (!v.fpsTarget) g._resAuto = 1;      // back to full when it is switched off
+    g._applyPixelRatio();
     g.renderer.shadowMap.enabled = v.shadows > 0;
     if (g.skyEnv) g.skyEnv.setShadowQuality?.(v.shadows);
 
