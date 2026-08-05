@@ -100,6 +100,10 @@ class Game {
     this.fps = 60;
     this._fpsAcc = 0;
     this._fpsFrames = 0;
+    this._msUpdate = 0;
+    this._msDraw = 0;
+    this.msUpdate = 0;
+    this.msDraw = 0;
     this._lensTimer = 0;
     this._showcaseAngle = 0;
     this._hornWas = false;
@@ -1185,13 +1189,31 @@ class Game {
       this._fpsFrames++;
       if (this._fpsAcc > 0.5) {
         this.fps = Math.round(this._fpsFrames / this._fpsAcc);
+        this.msUpdate = this._msUpdate / this._fpsFrames;
+        this.msDraw = this._msDraw / this._fpsFrames;
         this._fpsAcc = 0;
         this._fpsFrames = 0;
+        this._msUpdate = 0;
+        this._msDraw = 0;
       }
 
       this._adaptResolution(dt);
+      /**
+       * Where the frame went, for the corner readout.
+       *
+       * The clock after `render` returns does not include the GPU's own work —
+       * the driver is still busy when the call comes back — so what is being
+       * timed is the CPU cost of walking the scene and submitting the draws.
+       * That is the honest thing to show, because on this game it is the part
+       * that was the bottleneck, and it is the one number the graphics
+       * settings could never move.
+       */
+      const t0 = performance.now();
       this.update(dt);
+      const t1 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      this._msUpdate += t1 - t0;
+      this._msDraw += performance.now() - t1;
     };
     requestAnimationFrame(tick);
   }
@@ -1361,7 +1383,13 @@ class Game {
     if (driving || onFoot || paused) {
       const district = this._districtName();
       this.hud.setDistrict(district);
-      this.hud.update(dt, this.vehicle, { clock: this.skyEnv.clockText, fps: this.fps });
+      this.hud.update(dt, this.vehicle, {
+        clock: this.skyEnv.clockText,
+        fps: this.fps,
+        msUpdate: this.msUpdate,
+        msDraw: this.msDraw,
+        calls: this.renderer.info.render.calls
+      });
       this.minimap.draw(this.vehicle, this.traffic, district, this.waypoint, this.coop?.peers);
       this._updateWaypointHud();
     }

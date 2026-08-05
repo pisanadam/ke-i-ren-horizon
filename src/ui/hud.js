@@ -62,7 +62,10 @@ export class Hud {
     this.gear.textContent = vehicle.gear === -1 ? 'R' : String(vehicle.gear);
     this.kmh.innerHTML = `${Math.round(speed)} <i>km/s</i>`;
     this.clock.textContent = info.clock;
-    this.perf.textContent = `${info.fps} fps`;
+    // fps alone does not tell you which half of the frame is the problem
+    this.perf.textContent = info.msDraw
+      ? `${info.fps} fps · oyun ${info.msUpdate.toFixed(1)} ms · çizim ${info.msDraw.toFixed(1)} ms · ${info.calls} çağrı`
+      : `${info.fps} fps`;
     this.coord.textContent = `${Math.round(vehicle.position.x)}, ${Math.round(vehicle.position.z)}`;
 
     this._draw(vehicle, speed);

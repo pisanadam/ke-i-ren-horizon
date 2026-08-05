@@ -396,13 +396,28 @@ Kareyi asıl ucuzlatan dört şey, hepsi ölçüme bakılarak seçildi:
   metreye kadar her şey ve gölge, 210 metreye kadar gövde ile tampon, ötesinde
   yalnız gövde. Yakın ve uzak takım ayrı `InstancedMesh`'ler: bir örnek yığını
   ya tamamen gölge atar ya hiç atmaz, ikiye bölmenin sebebi bu.
+- **Görünmeyen parça sahne ağacından çıkar.** `visible = false` bir meshin
+  çizilmesini durdurur ama *düşünülmesini* durdurmaz: three her karede bütün
+  ağacı dolaşıp dünya matrislerini günceller ve kadraja gireni ayıklar. Şehir
+  oraya 4.418 mesh koyuyordu ve 3.681'i gizliydi. Ölçüldü: sahneyi 16×16'lık
+  bir tampona çizmek — yani doldurulacak neredeyse hiç piksel olmadan — 5,2
+  ms'lik karenin 4,3 ms'sini alıyordu. **Ayarları kısmanın kare hızını neredeyse
+  hiç değiştirmemesinin sebebi buydu**: hepsi sorunun olmadığı yeri hedefliyordu.
+  Menzil dışındaki parça artık ağaçtan çıkarılıyor; ağaçta olmayan nesnenin
+  maliyeti tam olarak sıfır. Ağaçtaki mesh 4.418'den 568'e indi.
 - **Katman başına parça boyu.** Bir parça hem bir çizim çağrısı hem de eleme
   birimi, dolayısıyla doğru boy katmanın ne kadar geometri taşıdığına bağlı.
-  Asfalt çağrı başına 767 üçgendi — boşa harcanan bir çağrı; asfalt, şev, çatı,
-  kaldırım, dükkân ve metro artık iki kat büyük parçalarda. Cepheler küçük
-  parçada kaldı: onlarda eleme, kazanılan çağrıdan değerli.
+  Asfalt çağrı başına 767 üçgendi — boşa harcanan bir çağrı. Kare CPU'ya
+  bağlı olduğu ortaya çıkınca üçgeni çizim çağrısına takas etmek açık ara
+  doğru oldu: cephe, asfalt, şev, çatı, kaldırım, dükkân ve metro iki kat
+  büyük parçalara geçti. Üçgen %7 arttı, kare 4,23 ms'den 3,25 ms'ye indi.
 - **Kapaksız ağaç gövdesi.** Alt kapak toprağın içinde, üst kapak tacın
   içindeydi: gövdenin 24 üçgeninin 12'si, üç bin ağaç çarpı.
+
+FPS göstergesi açıkken köşede karenin nereye gittiği de yazar:
+`60 fps · oyun 1,1 ms · çizim 3,2 ms · 304 çağrı`. "Çizim" GPU'nun işini değil,
+sahneyi dolaşıp çizim komutlarını göndermenin CPU maliyetini gösterir — çünkü
+bu oyunda darboğaz oydu ve grafik ayarlarının asla kıpırdatamadığı sayı da odur.
 
 Gölge pası 252 bin üçgen ve 49 çağrıdan 56 bin üçgen ve 16 çağrıya indi.
 Sürerken kare başına CPU 3,23 ms'den 2,64 ms'ye, yeni araziye girerken en kötü

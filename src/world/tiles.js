@@ -34,6 +34,7 @@ export const TILE = 560;
  * is the whole point.
  */
 const LAYER_TILE = [
+  [/^facade-/, 1120],
   [/^(asphalt|embankments|roofs|pavement|shops|metro-)/, 1120]
 ];
 
@@ -96,18 +97,40 @@ export class TileSet {
       const d2 = dx * dx + dz * dz;
       const r = reach + t.r;
       const on = d2 <= r * r;
-      t.mesh.visible = on;
-      if (!this.casts) continue;
+
+      /**
+       * A tile out of range leaves the scene graph rather than being hidden
+       * in it.
+       *
+       * `visible = false` stops a mesh being drawn but not being *considered*:
+       * three walks the whole graph every frame to update world matrices and
+       * to project what is in shot, and the city put 4,418 meshes in there of
+       * which 3,681 were hidden. Measured, that walk was most of the frame —
+       * rendering into a 16×16 buffer, with essentially no pixels to fill,
+       * still cost 4.3 ms of a 5.2 ms frame. Which is why turning the graphics
+       * settings down barely moved the frame rate: they were all aimed at the
+       * part that was not the problem. An object that is not in the graph
+       * costs exactly nothing, and crossing a tile boundary is rare enough
+       * that the add and remove are free.
+       */
+      if (on !== t.on) {
+        t.on = on;
+        if (on) this.group.add(t.mesh);
+        else this.group.remove(t.mesh);
+      }
+      if (!this.casts || !on) continue;
       // The shadow camera only covers a box around the car. Everything else
       // was still being submitted to it — a whole second pass over the city
       // to work out that none of it lands anywhere the sun can see.
       const s = shadowDist + t.r;
-      t.mesh.castShadow = on && d2 <= s * s;
+      t.mesh.castShadow = d2 <= s * s;
     }
   }
 
   showAll() {
-    for (const t of this.tiles) t.mesh.visible = true;
+    for (const t of this.tiles) {
+      if (!t.on) { this.group.add(t.mesh); t.on = true; }
+    }
   }
 }
 
@@ -164,6 +187,7 @@ export function mergeByTile(geos, material, name, opts = {}) {
     set.group.add(mesh);
     set.tiles.push({
       mesh,
+      on: true,
       cx: sph ? sph.center.x : (b.ix + 0.5) * size,
       cz: sph ? sph.center.z : (b.iz + 0.5) * size,
       r: sph ? sph.radius : size
@@ -223,6 +247,7 @@ export function instanceByTile(items, geo, material, name, write) {
     set.group.add(mesh);
     set.tiles.push({
       mesh,
+      on: true,
       cx: sph ? sph.center.x : (b.ix + 0.5) * TILE,
       cz: sph ? sph.center.z : (b.iz + 0.5) * TILE,
       r: sph ? sph.radius : TILE
