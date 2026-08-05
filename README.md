@@ -396,6 +396,16 @@ Kareyi asıl ucuzlatan dört şey, hepsi ölçüme bakılarak seçildi:
   metreye kadar her şey ve gölge, 210 metreye kadar gövde ile tampon, ötesinde
   yalnız gövde. Yakın ve uzak takım ayrı `InstancedMesh`'ler: bir örnek yığını
   ya tamamen gölge atar ya hiç atmaz, ikiye bölmenin sebebi bu.
+- **Kadraj dışı da ağaçtan çıkar.** Herhangi bir anda şehrin yarısı arkanda.
+  three onları zaten çizmiyordu — çizim öncesi kadraj testi yapar — ama ne
+  olduklarını anlamak için her karede hepsini ziyaret etmesi gerekiyordu. Test
+  artık burada yapılıyor ve kalmayan ağaçtan çıkarılıyor, yani hiç ziyaret
+  edilmiyorlar. Ağaçtaki mesh 418'den ~342'ye iner. İki şey kameraya
+  bakılmaksızın kalır: güneşin gölge kutusundaki her şey (arkandaki bina
+  gölgesini önündeki yola düşürür) ve 150 metre yakındaki her şey (kamera bir
+  karede kadrajın affettiğinden hızlı dönebilir). Sekiz yönde denendi: kadraj
+  elemesi açık ve kapalı kareler **piksel piksel aynı** ve çizim çağrısı sayısı
+  birebir eşit — yani ekranda görünen hiçbir şey elenmiyor.
 - **Görünmeyen parça sahne ağacından çıkar.** `visible = false` bir meshin
   çizilmesini durdurur ama *düşünülmesini* durdurmaz: three her karede bütün
   ağacı dolaşıp dünya matrislerini günceller ve kadraja gireni ayıklar. Şehir

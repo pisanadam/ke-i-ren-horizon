@@ -1319,7 +1319,6 @@ class Game {
       this.metro.update(dt, focus);
       this.props.pedestrians.update(dt, this.clockTime, focus);
       this.effects.update(dt);
-      this.tiles.update(focus.x, focus.z);
       this.rigid.update(dt, focus);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
@@ -1356,6 +1355,15 @@ class Game {
       this.rig.follow(dt, this.onFoot, this.ground);
     } else if (!paused) {
       this.rig.update(dt, this.vehicle, this.ground);
+    }
+
+    // ---- what is worth having in the scene at all ----------------------
+    // After the camera has moved, not before: the tiles are chosen by what
+    // this frame's camera can see, and a frame-old frustum on a fast turn is
+    // exactly where the edge of the world would blink.
+    if (!paused) {
+      const eye = onFoot ? this.onFoot.position : this.vehicle.position;
+      this.tiles.update(eye.x, eye.z, this.camera);
     }
 
     // ---- audio ---------------------------------------------------------

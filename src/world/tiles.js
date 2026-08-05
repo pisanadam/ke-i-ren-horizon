@@ -43,6 +43,16 @@ function tileFor(name) {
   return TILE;
 }
 
+/**
+ * Nothing inside this radius is ever culled by the camera.
+ *
+ * The frustum used for the test is the one the camera had last frame, and a
+ * fast flick of the mouse can turn further in one frame than the edge of the
+ * frustum forgives. A street's length of slack costs a handful of meshes and
+ * means the world never blinks at the edge of the screen.
+ */
+const NEAR_KEEP = 150;
+
 const key = (ix, iz) => `${ix}:${iz}`;
 
 /** Centre of a geometry, used to decide which tile it belongs to. */
@@ -89,14 +99,35 @@ export class TileSet {
    * its centre and culled by its cell, the tarmac under the car disappeared
    * while the buildings either side stayed.
    */
-  update(x, z, dist, shadowDist) {
+  update(x, z, dist, shadowDist, frustum) {
     const reach = dist * this.range;
     for (const t of this.tiles) {
       const dx = t.cx - x;
       const dz = t.cz - z;
       const d2 = dx * dx + dz * dz;
       const r = reach + t.r;
-      const on = d2 <= r * r;
+      let on = d2 <= r * r;
+
+      /**
+       * And of what is close enough, only what is actually in shot.
+       *
+       * Half the city is behind you at any moment. three would not have drawn
+       * it — it frustum-tests before submitting — but it still had to visit
+       * every one of those meshes to find that out. Testing here instead, and
+       * detaching what fails, means the ones behind you are not visited at all.
+       *
+       * Two things stay attached whatever the camera is pointing at: anything
+       * inside the sun's shadow box, because a building behind you still
+       * throws its shadow across the road in front of you, and anything within
+       * a street's length, because the camera can swing round faster than a
+       * frame.
+       */
+      if (on && frustum) {
+        const keep = shadowDist + t.r;
+        if (d2 > keep * keep && d2 > NEAR_KEEP * NEAR_KEEP) {
+          on = frustum.intersectsSphere(t.sphere);
+        }
+      }
 
       /**
        * A tile out of range leaves the scene graph rather than being hidden
@@ -188,6 +219,9 @@ export function mergeByTile(geos, material, name, opts = {}) {
     set.tiles.push({
       mesh,
       on: true,
+      sphere: sph ? sph.clone() : new THREE.Sphere(
+        new THREE.Vector3((b.ix + 0.5) * size, 0, (b.iz + 0.5) * size), size
+      ),
       cx: sph ? sph.center.x : (b.ix + 0.5) * size,
       cz: sph ? sph.center.z : (b.iz + 0.5) * size,
       r: sph ? sph.radius : size
@@ -248,6 +282,9 @@ export function instanceByTile(items, geo, material, name, write) {
     set.tiles.push({
       mesh,
       on: true,
+      sphere: sph ? sph.clone() : new THREE.Sphere(
+        new THREE.Vector3((b.ix + 0.5) * TILE, 0, (b.iz + 0.5) * TILE), TILE
+      ),
       cx: sph ? sph.center.x : (b.ix + 0.5) * TILE,
       cz: sph ? sph.center.z : (b.iz + 0.5) * TILE,
       r: sph ? sph.radius : TILE
@@ -263,6 +300,10 @@ export class TileWorld {
     this.distance = 2200;
     /** How far from the car the sun's shadow box actually reaches. */
     this.shadowDistance = 260;
+    /** Off leaves the culling entirely to the renderer, for comparison. */
+    this.frustumCull = true;
+    this._frustum = new THREE.Frustum();
+    this._m = new THREE.Matrix4();
   }
 
   /**
@@ -282,8 +323,18 @@ export class TileWorld {
     return set;
   }
 
-  update(x, z) {
-    for (const s of this.sets) s.update(x, z, this.distance, this.shadowDistance);
+  /**
+   * @param {number} x @param {number} z where the player is
+   * @param {THREE.Camera} [camera] to cull by what is actually in shot
+   */
+  update(x, z, camera) {
+    let frustum = null;
+    if (camera && this.frustumCull) {
+      camera.updateMatrixWorld();
+      this._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      frustum = this._frustum.setFromProjectionMatrix(this._m);
+    }
+    for (const s of this.sets) s.update(x, z, this.distance, this.shadowDistance, frustum);
   }
 
   /** Every tile mesh in every layer, for the reflection probe and culling. */
