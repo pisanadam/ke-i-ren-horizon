@@ -158,6 +158,65 @@ export class Reflections {
     this.scene.environmentIntensity = this.intensity;
   }
 
+  /**
+   * Checks that the environment map is adding light rather than eating it,
+   * and switches it off for good if it is not.
+   *
+   * An environment map can only ever *add* to what a surface receives. So if
+   * the scene comes out darker with it than without, the map is not lighting
+   * the world — it is broken, and on this stack a broken one does not degrade,
+   * it takes every lit surface to black: near geometry goes pitch dark and the
+   * only thing still visible is whatever the fog is painting in the distance.
+   * That has been seen for real on iOS. Two thirty-two pixel renders at load
+   * are a cheap price for never shipping that picture.
+   *
+   * @param {THREE.Camera} camera any camera pointed at the world
+   */
+  selfTest(camera) {
+    if (this.mode === 'kapalı' || this.checked) return true;
+    this.checked = true;
+    const probe = new THREE.WebGLRenderTarget(32, 32, {
+      type: THREE.UnsignedByteType, depthBuffer: true
+    });
+    const buf = new Uint8Array(32 * 32 * 4);
+    const renderer = this.renderer;
+    const was = renderer.getRenderTarget();
+
+    const mean = () => {
+      renderer.setRenderTarget(probe);
+      renderer.render(this.scene, camera);
+      renderer.readRenderTargetPixels(probe, 0, 0, 32, 32, buf);
+      let s = 0;
+      for (let i = 0; i < buf.length; i += 4) s += buf[i] + buf[i + 1] + buf[i + 2];
+      return s / (buf.length / 4) / 3;
+    };
+
+    let ok = true;
+    try {
+      const withEnv = mean();
+      const env = this.scene.environment;
+      this.scene.environment = null;
+      const without = mean();
+      this.scene.environment = env;
+      // a little slack for dithering and tone mapping; this is looking for a
+      // collapse, not for a rounding difference
+      ok = withEnv >= without * 0.9;
+      this.testedWith = +withEnv.toFixed(1);
+      this.testedWithout = +without.toFixed(1);
+    } catch {
+      ok = true;                    // cannot read it back: leave things alone
+    }
+
+    renderer.setRenderTarget(was);
+    probe.dispose();
+    if (!ok) {
+      this.broken = true;
+      this.setMode('kapalı');
+      this.scene.environment = null;
+    }
+    return ok;
+  }
+
   dispose() {
     this.cubeRT.dispose();
     this.target?.dispose();

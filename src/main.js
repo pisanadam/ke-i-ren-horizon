@@ -1325,6 +1325,14 @@ class Game {
       this.reflections.update(
         dt, onFoot ? this.onFoot.position : this.vehicle.position, this.skyEnv.hour
       );
+      // The first environment map the game builds gets checked before it is
+      // trusted. On a stack where it comes out broken the whole world renders
+      // unlit, and that is not a thing to ship and hope about.
+      if (this.reflections.target && !this.reflections.checked) {
+        if (!this.reflections.selfTest(this.camera)) {
+          this.hud?.showToast('Yansımalar bu cihazda çalışmadı, kapatıldı', 3.4);
+        }
+      }
       this._updateNight(dt);
       this._updateSignalLenses(dt);
       this._updateFlags();
