@@ -7,6 +7,7 @@ const ACTION_KEYS = {
   KeyN: 'teleport',
   KeyM: 'map',
   KeyG: 'garage',
+  KeyY: 'races',
   KeyV: 'lights',
   KeyF: 'fullscreen',
   KeyE: 'interact',

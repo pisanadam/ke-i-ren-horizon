@@ -26,7 +26,7 @@ export class Hud {
     window.addEventListener('resize', () => this._resize());
 
     this.tips.textContent =
-      'C kamera · Boşluk el freni · H klakson · R düzelt · T saat · N ışınlan · M harita · G garaj';
+      'C kamera · Boşluk el freni · H klakson · R düzelt · T saat · N ışınlan · Y yarış · M harita · G garaj';
   }
 
   _resize() {

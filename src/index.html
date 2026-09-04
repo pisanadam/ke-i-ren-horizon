@@ -123,6 +123,24 @@
       <b id="wp-dist">0 m</b>
     </div>
 
+    <!-- yarış paneli -->
+    <div id="race-hud" class="hidden">
+      <div class="race-head">
+        <b id="race-title">Yarış</b>
+        <span id="race-next"></span>
+      </div>
+      <div class="race-row">
+        <b id="race-time">0:00.0</b>
+        <span class="race-cp" id="race-cp">0/0</span>
+        <span class="race-delta" id="race-delta"></span>
+        <span class="race-dist" id="race-dist"></span>
+      </div>
+    </div>
+
+    <!-- geri sayım ve sonuç -->
+    <div id="race-count" class="hidden"><b>3</b></div>
+    <div id="race-result" class="hidden"></div>
+
     <div class="hud-bottom">
       <div class="tips" id="tips"></div>
     </div>
@@ -215,6 +233,22 @@
     </div>
   </div>
 
+  <!-- ============ YARIŞLAR ============ -->
+  <div id="races" class="screen hidden">
+    <div class="settings-box races-box">
+      <h2>Yarışlar</h2>
+      <p class="coop-hint">
+        Kapılardan sırayla geç. Saat geri sayım bitince başlar, son kapıda durur.
+        Hedef süreyi tutturursan altın.
+      </p>
+      <ul class="race-list" id="race-list"></ul>
+      <div class="settings-actions">
+        <button id="races-quit" class="ghost-btn small hidden">YARIŞI BIRAK</button>
+        <button id="races-close" class="primary">KAPAT</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ AYARLAR ============ -->
   <div id="settings" class="screen hidden">
     <div class="settings-box">
@@ -256,6 +290,7 @@
       <div class="pause-stats" id="pause-stats"></div>
       <button id="btn-resume" class="primary">DEVAM ET</button>
       <button id="btn-pause-settings" class="ghost-btn">AYARLAR</button>
+      <button id="btn-races" class="ghost-btn">YARIŞLAR</button>
       <button id="btn-coop" class="ghost-btn">CO-OP</button>
       <button id="btn-garage" class="ghost-btn">GARAJA DÖN</button>
       <div class="keymap">
@@ -273,6 +308,7 @@
         <div><kbd>Shift</kbd><span>Yayayken koş</span></div>
         <div><kbd>O</kbd><span>Ayarlar</span></div>
         <div><kbd>F</kbd><span>Tam ekran</span></div>
+        <div><kbd>Y</kbd><span>Yarışlar</span></div>
         <div><kbd>M</kbd><span>Harita</span></div>
         <div><kbd>G</kbd><span>Garaj</span></div>
         <div><kbd>Esc</kbd><span>Duraklat</span></div>

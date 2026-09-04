@@ -241,7 +241,19 @@ export class Settings {
       } catch { /* eklenti yok */ }
       this._hw = { gpu, cores: navigator.hardwareConcurrency || '?' };
     }
-    el.textContent = `Ekran kartı: ${this._hw.gpu} · ${this._hw.cores} çekirdek`;
+    // The rest is read fresh every time the panel opens: it is the live state
+    // of the three things that have ever made this game render a black world,
+    // so a screenshot of this line says which one it was.
+    const g = this.game;
+    const canvas = g.renderer.domElement;
+    const refl = g.reflections;
+    const sun = g.skyEnv?.sun;
+    const shadow = sun?.castShadow ? `${sun.shadow.mapSize.x} px` : 'kapalı';
+    const env = refl?.broken ? 'bozuk, kapatıldı' : (refl?.mode ?? 'kapalı');
+    el.textContent =
+      `Ekran kartı: ${this._hw.gpu} · ${this._hw.cores} çekirdek · ` +
+      `çizim ${canvas.width}×${canvas.height} (×${(g._resAuto ?? 1).toFixed(2)}) · ` +
+      `yansıma ${env} · gölge ${shadow}`;
   }
 
   _load() {

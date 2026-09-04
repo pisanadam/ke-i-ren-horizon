@@ -371,6 +371,11 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
   text-overflow: ellipsis;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* The race strip takes the top of the screen, so everything that used to
+   live there steps down a rung: the turn banner under the strip, the toast
+   under that. */
+#hud.racing #nav { top: max(108px, calc(env(safe-area-inset-top) + 102px)); }
+#hud.racing #toast { top: 162px; }
 
 /* ---------------- duraklat ---------------- */
 .pause-box {
@@ -419,6 +424,136 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
 }
 #waypoint svg { width: 17px; height: 17px; fill: var(--good); transition: transform 0.08s linear; }
 #waypoint b { font-size: 12.5px; letter-spacing: 0.04em; color: var(--good); }
+
+/* ---------------- yarış ---------------- */
+/* Sits exactly where the waypoint pill sits — the two are never up at the
+   same time, so they can share the one bit of screen that is free on both a
+   desktop and a phone. */
+#race-hud {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 260px;
+  padding: 7px 16px 8px;
+  border-radius: 14px;
+  background: rgba(8, 12, 20, 0.82);
+  border: 1px solid rgba(255, 176, 58, 0.34);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  text-align: center;
+}
+.race-head {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.race-head b { color: #ffb03a; }
+#race-next { color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0.03em; }
+.race-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+#race-time { font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.race-cp { font-size: 12px; font-weight: 700; color: var(--accent-2); }
+.race-delta { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.race-delta.ahead { color: var(--good); }
+.race-delta.behind { color: #ff6a4d; }
+.race-dist { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+#race-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+#race-count b {
+  font-size: clamp(64px, 16vw, 148px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffd05a;
+  text-shadow: 0 0 40px rgba(255, 176, 58, 0.6);
+  animation: race-pop 0.45s ease-out;
+}
+@keyframes race-pop {
+  from { transform: scale(1.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+#race-result {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 18px 30px 20px;
+  border-radius: 18px;
+  background: rgba(8, 12, 20, 0.9);
+  border: 1px solid rgba(255, 176, 58, 0.4);
+  backdrop-filter: blur(14px);
+  text-align: center;
+  pointer-events: none;
+  min-width: min(340px, 84vw);
+}
+#race-result .rr-medal { font-size: 40px; line-height: 1; }
+#race-result h3 { margin: 6px 0 2px; font-size: 15px; letter-spacing: 0.06em; }
+#race-result .rr-time { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+#race-result .rr-note { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+#race-result .rr-note.best { color: var(--good); font-weight: 700; }
+
+/* yarış listesi */
+#races { z-index: 31; }
+.races-box { width: min(620px, 94vw); }
+.race-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+}
+.race-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--stroke);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+}
+.race-item:hover { background: rgba(255, 255, 255, 0.11); }
+.race-item .ri-medal { font-size: 22px; width: 26px; text-align: center; flex: 0 0 auto; }
+.race-item .ri-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.race-item .ri-name { font-size: 14px; font-weight: 700; }
+.race-item .ri-blurb { font-size: 11.5px; color: var(--muted); }
+.race-item .ri-len { font-size: 10.5px; color: var(--muted); opacity: 0.75; letter-spacing: 0.04em; }
+.race-item .ri-num {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+}
+.race-item .ri-num span { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; }
+.race-item .ri-num i { font-style: normal; color: var(--muted); letter-spacing: 0.06em; }
+.race-item .ri-num b { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.race-item .ri-num b.has { color: var(--good); }
+.race-item .ri-num span:first-child b { color: #ffd05a; }
 
 /* ---------------- harita ---------------- */
 #mapview {
@@ -598,6 +733,25 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   .hud-bottom { display: none; }
   #toast { font-size: 11.5px; padding: 7px 14px; top: max(46px, calc(env(safe-area-inset-top) + 40px)); }
   #waypoint { top: auto; bottom: max(10px, env(safe-area-inset-bottom)); }
+  /* the strip is at the bottom here, so these keep their own places */
+  #hud.racing #toast { top: max(46px, calc(env(safe-area-inset-top) + 40px)); }
+  #hud.racing #nav { top: max(96px, calc(env(safe-area-inset-top) + 90px)); }
+  #race-hud {
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    min-width: 0;
+    padding: 4px 12px 5px;
+    border-radius: 11px;
+  }
+  .race-head { font-size: 9px; gap: 6px; }
+  .race-row { gap: 9px; }
+  #race-time { font-size: 16px; }
+  .race-cp, .race-delta { font-size: 10.5px; }
+  .race-dist { font-size: 10px; }
+  #race-result { top: 10%; padding: 12px 20px 14px; min-width: 0; }
+  #race-result .rr-medal { font-size: 30px; }
+  #race-result .rr-time { font-size: 25px; }
+  #race-result h3 { font-size: 12.5px; }
 
   /* the gauge sits top-right on phones, so the buttons move under it */
   #touch-buttons { top: auto; bottom: max(96px, calc(env(safe-area-inset-bottom) + 92px)); right: max(10px, env(safe-area-inset-right)); flex-direction: row; }

@@ -18,6 +18,10 @@ import { Breakables } from './world/breakables.js';
 import { TileWorld } from './world/tiles.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
+import {
+  RaceGates, RaceSession, prepareAll, loadBests, saveBest,
+  medalFor, formatTime, formatDelta, MEDAL
+} from './race.js';
 
 import { createPlayerCar, sillHeight } from './vehicles/carModel.js';
 import { Vehicle } from './vehicles/vehicle.js';
@@ -112,6 +116,11 @@ class Game {
     this.shakeScale = 1;
     this.useMph = false;
     this.canWreck = true;
+    this.race = null;          // the attempt in progress, if any
+    this.racePlan = null;      // every race this map can hold, prepared once
+    this.raceBests = loadBests();
+    this._raceResultT = 0;
+    this._raceGoHide = 0;
     this._ambientAcc = 0;
     /**
      * Dynamic resolution.
@@ -352,6 +361,8 @@ class Game {
     this.settings.applyAll();
     this.coop = new Coop(this);
     this._bindCoop();
+    this.raceGates = new RaceGates(this.scene);
+    this._bindRaces();
 
     document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
     document.getElementById('btn-settings').addEventListener('click', () => this.openSettings());
@@ -620,6 +631,7 @@ class Game {
   }
 
   _exitCar() {
+    this.abortRace('Yarış bitti · araçtan indin');
     this.state = 'foot';
     this.input.releaseAll();
     this.onFoot.exit(this.vehicle);
@@ -852,6 +864,215 @@ class Game {
     refresh();
   }
 
+  // ------------------------------------------------------------------ races
+  /**
+   * The race list and the buttons around it.
+   *
+   * The routes are only prepared the first time the list is opened: every one
+   * of them costs a handful of Dijkstra runs to measure, and a player who
+   * never opens the list should not pay for that at load.
+   */
+  _bindRaces() {
+    const el = document.getElementById('races');
+    const list = document.getElementById('race-list');
+    const quit = document.getElementById('races-quit');
+
+    const close = () => {
+      el.classList.add('hidden');
+      this.input?.clearActions();
+    };
+
+    const render = () => {
+      if (!this.racePlan) this.racePlan = prepareAll(this.network, this.colliders);
+      list.innerHTML = '';
+      for (const r of this.racePlan) {
+        const best = this.raceBests[r.def.id];
+        const medal = best ? medalFor(best.time, r.par) : null;
+        const item = document.createElement('button');
+        item.className = 'race-item';
+        item.innerHTML = `
+          <span class="ri-medal">${medal ? MEDAL[medal].icon : '🏁'}</span>
+          <span class="ri-body">
+            <b class="ri-name">${r.def.name}</b>
+            <span class="ri-blurb">${r.def.blurb}</span>
+            <span class="ri-len">${(r.length / 1000).toFixed(1)} km · ${r.checkpoints.length} kapı</span>
+          </span>
+          <span class="ri-num">
+            <span><i>hedef</i><b>${formatTime(r.par)}</b></span>
+            <span><i>rekorun</i><b class="${best ? 'has' : ''}">${best ? formatTime(best.time) : '—'}</b></span>
+          </span>`;
+        item.addEventListener('click', () => { close(); this.startRace(r); });
+        list.appendChild(item);
+      }
+      if (!this.racePlan.length) {
+        list.innerHTML = '<li class="ri-blurb">Bu haritada sürülebilir yarış bulunamadı.</li>';
+      }
+      quit.classList.toggle('hidden', !this.race);
+    };
+
+    this.openRaces = () => {
+      if (this.state === 'map') this.closeMap();
+      if (this.state === 'driving') this.pause();
+      if (this.state === 'garage') return;
+      this.input?.releaseAll();
+      el.classList.remove('hidden');
+      render();
+    };
+    this.closeRaces = close;
+    document.getElementById('btn-races').addEventListener('click', () => this.openRaces());
+    document.getElementById('races-close').addEventListener('click', close);
+    quit.addEventListener('click', () => { this.abortRace('Yarış bırakıldı'); close(); });
+  }
+
+  /** Puts the car on the line and starts the count-in. */
+  startRace(prepared) {
+    if (this.state === 'paused') this.resume();
+    if (this.state === 'foot') this._enterCar();
+    if (this.state !== 'driving') return;
+
+    this.abortRace(null);
+    this._wpBeforeRace = this.waypoint;
+
+    const first = prepared.checkpoints[0];
+    const yaw = Math.atan2(first.x - prepared.start.x, first.z - prepared.start.z);
+    this._repairCar();
+    this._placeOnRoad(prepared.start.x, prepared.start.z, yaw);
+    this.rig.snapTo(this.vehicle);
+    this.effects.clearSkids();
+
+    this.race = new RaceSession(prepared);
+    this.raceGates.show();
+    this.raceGates.update(0, prepared.checkpoints, 0, this.ground);
+    document.getElementById('race-hud').classList.remove('hidden');
+    document.getElementById('hud').classList.add('racing');
+    document.getElementById('race-title').textContent = prepared.def.name;
+    document.getElementById('race-result').classList.add('hidden');
+    this._raceResultT = 0;
+    this._raceAimAt(first);
+    this.hud.showToast(`${prepared.def.name} · hedef ${formatTime(prepared.par)}`, 2.6);
+  }
+
+  /** Points the navigation at a gate without the "destination set" ceremony. */
+  _raceAimAt(cp) {
+    this.waypoint = { x: cp.x, z: cp.z };
+    this._buildRoute();
+    document.getElementById('waypoint').classList.add('hidden');
+  }
+
+  /** Ends an attempt early. `msg` null means "no announcement, just clear". */
+  abortRace(msg = 'Yarış iptal edildi') {
+    if (!this.race) return;
+    this.race = null;
+    this.raceGates.hide();
+    document.getElementById('race-hud').classList.add('hidden');
+    document.getElementById('hud').classList.remove('racing');
+    document.getElementById('race-count').classList.add('hidden');
+    this.waypoint = this._wpBeforeRace || null;
+    this._wpBeforeRace = null;
+    this._buildRoute();
+    document.getElementById('waypoint').classList.toggle('hidden', !this.waypoint);
+    if (msg) this.hud.showToast(msg, 2.2);
+  }
+
+  /** The clock, the gates, and what a passed gate is worth. */
+  _updateRace(dt) {
+    const card = document.getElementById('race-result');
+    if (this._raceResultT > 0) {
+      this._raceResultT -= dt;
+      if (this._raceResultT <= 0) card.classList.add('hidden');
+    }
+    const race = this.race;
+    if (!race) return;
+
+    // a wreck is the end of the attempt, whatever the clock says
+    if (this.vehicle.dead) {
+      this.abortRace(null);
+      this._showRaceResult(null, 'Araç hurdaya çıktı', null);
+      return;
+    }
+
+    const p = this.vehicle.position;
+    const event = race.update(dt, p.x, p.z);
+    const count = document.getElementById('race-count');
+
+    if (race.state === 'countdown') {
+      count.classList.remove('hidden');
+      if (event === 'tick') {
+        count.innerHTML = `<b>${Math.ceil(race.countdown)}</b>`;
+        this.audio.blip(620, 0.14, 0.07);
+      }
+    } else if (event === 'go') {
+      count.innerHTML = '<b>BAŞLA!</b>';
+      this.audio.blip(980, 0.22, 0.09);
+      this._raceGoHide = 0.7;
+    }
+    if (this._raceGoHide > 0) {
+      this._raceGoHide -= dt;
+      if (this._raceGoHide <= 0) count.classList.add('hidden');
+    }
+
+    if (event === 'gate' || event === 'finish') {
+      const best = this.raceBests[race.race.def.id];
+      const ref = best?.splits?.[race.index - 1];
+      race.delta = Number.isFinite(ref) ? race.time - ref : null;
+      this.audio.blip(event === 'finish' ? 1180 : 860, 0.16, 0.08);
+    }
+    if (event === 'gate') this._raceAimAt(race.target);
+
+    if (event === 'finish') {
+      const def = race.race.def;
+      const time = race.time;
+      const prev = this.raceBests[def.id];
+      const record = !prev || time < prev.time;
+      if (record) saveBest(this.raceBests, def.id, time, race.splits);
+      const medal = medalFor(time, race.race.par);
+      this.abortRace(null);
+      this._showRaceResult(time, def.name, medal, record, prev?.time);
+      return;
+    }
+
+    this.raceGates.update(dt, race.race.checkpoints, race.index, this.ground);
+    this._raceHud(race);
+  }
+
+  _raceHud(race) {
+    document.getElementById('race-time').textContent =
+      race.state === 'countdown' ? formatTime(0) : formatTime(race.time);
+    document.getElementById('race-cp').textContent = `${race.index}/${race.total}`;
+    document.getElementById('race-next').textContent = race.target?.name || '';
+    const d = document.getElementById('race-delta');
+    if (race.delta === null) {
+      d.textContent = '';
+    } else {
+      d.textContent = formatDelta(race.delta);
+      d.classList.toggle('ahead', race.delta < 0);
+      d.classList.toggle('behind', race.delta >= 0);
+    }
+    const dist = document.getElementById('race-dist');
+    const m = race.dist;
+    dist.textContent = race.state === 'countdown' ? ''
+      : (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+  }
+
+  /** The card that says how it went, for a few seconds. */
+  _showRaceResult(time, title, medal, record = false, prevBest = null) {
+    const card = document.getElementById('race-result');
+    const icon = time === null ? '💥' : (medal ? MEDAL[medal].icon : '🏁');
+    let note = '';
+    if (time === null) note = 'Yarış yarıda kaldı';
+    else if (record && prevBest) note = `Yeni rekor · ${formatDelta(time - prevBest)} sn`;
+    else if (record) note = 'İlk kez bitirdin';
+    else note = `Rekorun ${formatTime(prevBest)}`;
+    card.innerHTML = `
+      <div class="rr-medal">${icon}</div>
+      <h3>${title}</h3>
+      <div class="rr-time">${time === null ? '--:--' : formatTime(time)}</div>
+      <p class="rr-note${record && time !== null ? ' best' : ''}">${note}</p>`;
+    card.classList.remove('hidden');
+    this._raceResultT = 6;
+    if (time !== null) this.hud.showToast(medal ? `${MEDAL[medal].label} madalya!` : 'Yarış bitti', 2.6);
+  }
+
   toggleFullscreen() {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen?.().catch(() => {});
@@ -889,6 +1110,7 @@ class Game {
 
   // ----------------------------------------------------------------- states
   toGarage(initial = false) {
+    this.abortRace(null);
     this.state = 'garage';
     this.mapView?.close();
     this.input?.releaseAll();
@@ -1142,6 +1364,10 @@ class Game {
     if (input.consume('settings')) {
       this.settings.isOpen ? this.settings.close() : this.openSettings();
     }
+    if (input.consume('races')) {
+      const open = !document.getElementById('races').classList.contains('hidden');
+      open ? this.closeRaces?.() : this.openRaces?.();
+    }
     if (input.consume('interact')) this._interact();
 
     if (this.state === 'foot') {
@@ -1166,6 +1392,7 @@ class Game {
       this.hud.showToast('Araç yola alındı ve onarıldı', 1.8);
     }
     if (input.consume('teleport')) {
+      this.abortRace();
       const p = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
       this._placeOnRoad(p.x, p.z, p.yaw);
       this.rig.snapTo(this.vehicle);
@@ -1281,6 +1508,7 @@ class Game {
         this.rig.addShake(this.vehicle.impact * 0.9 * this.shakeScale);
       }
       this._updateDamage(dt);
+      this._updateRace(dt);
       this.clockTime += dt;
       this.terrain.update(this.vehicle.position.x, this.vehicle.position.z, this.streamBudget);
     } else if (onFoot) {
@@ -1413,7 +1641,9 @@ class Game {
 
   /** Bearing and distance to the marked destination. */
   _updateWaypointHud() {
-    if (!this.waypoint) return;
+    // during a race the marker belongs to the gate the race is aiming at,
+    // and arriving at it is the race's business, not the waypoint's
+    if (!this.waypoint || this.race) return;
     const v = this.vehicle;
     const dx = this.waypoint.x - v.position.x;
     const dz = this.waypoint.z - v.position.z;
