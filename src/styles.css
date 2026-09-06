@@ -375,7 +375,10 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
    live there steps down a rung: the turn banner under the strip, the toast
    under that. */
 #hud.racing #nav { top: max(108px, calc(env(safe-area-inset-top) + 102px)); }
-#hud.racing #toast { top: 162px; }
+#hud.racing #toast { top: 172px; }
+/* the running order makes the strip a row taller, so both step down again */
+#hud.racing.with-rivals #nav { top: max(132px, calc(env(safe-area-inset-top) + 126px)); }
+#hud.racing.with-rivals #toast { top: 196px; }
 
 /* ---------------- duraklat ---------------- */
 .pause-box {
@@ -467,6 +470,18 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .race-delta.ahead { color: var(--good); }
 .race-delta.behind { color: #ff6a4d; }
 .race-dist { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.race-rivals {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid rgba(140, 180, 255, 0.14);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.race-rivals .me { color: var(--accent-2); font-weight: 700; }
 
 #race-count {
   position: absolute;
@@ -505,6 +520,7 @@ button.ghost-btn:hover { background: rgba(255, 255, 255, 0.12); }
 }
 #race-result .rr-medal { font-size: 40px; line-height: 1; }
 #race-result h3 { margin: 6px 0 2px; font-size: 15px; letter-spacing: 0.06em; }
+#race-result .rr-place { font-size: 13px; font-weight: 700; color: var(--accent-2); letter-spacing: 0.1em; }
 #race-result .rr-time { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
 #race-result .rr-note { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
 #race-result .rr-note.best { color: var(--good); font-weight: 700; }
@@ -735,7 +751,9 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   #waypoint { top: auto; bottom: max(10px, env(safe-area-inset-bottom)); }
   /* the strip is at the bottom here, so these keep their own places */
   #hud.racing #toast { top: max(46px, calc(env(safe-area-inset-top) + 40px)); }
-  #hud.racing #nav { top: max(96px, calc(env(safe-area-inset-top) + 90px)); }
+  #hud.racing #nav,
+  #hud.racing.with-rivals #nav { top: max(96px, calc(env(safe-area-inset-top) + 90px)); }
+  #hud.racing.with-rivals #toast { top: max(46px, calc(env(safe-area-inset-top) + 40px)); }
   #race-hud {
     top: auto;
     bottom: max(8px, env(safe-area-inset-bottom));
@@ -752,6 +770,7 @@ button.ghost-btn.close { border-color: rgba(255, 138, 61, 0.45); color: #ffcb9a;
   #race-result .rr-medal { font-size: 30px; }
   #race-result .rr-time { font-size: 25px; }
   #race-result h3 { font-size: 12.5px; }
+  .race-rivals { font-size: 9.5px; gap: 8px; margin-top: 2px; padding-top: 2px; }
 
   /* the gauge sits top-right on phones, so the buttons move under it */
   #touch-buttons { top: auto; bottom: max(96px, calc(env(safe-area-inset-bottom) + 92px)); right: max(10px, env(safe-area-inset-right)); flex-direction: row; }

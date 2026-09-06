@@ -925,18 +925,22 @@ class Game {
   }
 
   /** Puts the car on the line and starts the count-in. */
-  startRace(prepared) {
+  startRace(prepared, invited = false) {
     if (this.state === 'paused') this.resume();
     if (this.state === 'foot') this._enterCar();
     if (this.state !== 'driving') return;
 
     this.abortRace(null);
     this._wpBeforeRace = this.waypoint;
+    this._raceBoard = [];
+    this._raceBoardId = prepared.def.id;
+    // the room drives whatever race one of them picked
+    if (!invited) this.coop?.sendRaceStart(prepared.def.id);
 
     const first = prepared.checkpoints[0];
     const yaw = Math.atan2(first.x - prepared.start.x, first.z - prepared.start.z);
     this._repairCar();
-    this._placeOnRoad(prepared.start.x, prepared.start.z, yaw);
+    this._placeOnRoad(prepared.start.x, prepared.start.z, yaw, this.coop?.gridSlot?.() ?? 0);
     this.rig.snapTo(this.vehicle);
     this.effects.clearSkids();
 
@@ -952,6 +956,34 @@ class Game {
     this.hud.showToast(`${prepared.def.name} · hedef ${formatTime(prepared.par)}`, 2.6);
   }
 
+  /** A room-mate picked a race; drive the same one. */
+  onRaceInvite(id, who) {
+    if (!this.racePlan) this.racePlan = prepareAll(this.network, this.colliders);
+    const prepared = this.racePlan.find((r) => r.def.id === id);
+    if (!prepared) return;
+    if (this.race?.race.def.id === id && this.race.running) return;
+    this.closeRaces?.();
+    this.startRace(prepared, true);
+    this.hud.showToast(`${who} yarışa çağırdı · ${prepared.def.name}`, 3);
+  }
+
+  /**
+   * Somebody else crossed the last gate.
+   *
+   * The board is keyed on the race rather than on there being a run in
+   * progress: whoever finishes first is done and watching, and that is
+   * exactly when the other times matter most.
+   */
+  onRaceFinish(id, time, who) {
+    if (this._raceBoardId !== id) return;
+    this._raceBoard = this._raceBoard || [];
+    if (this._raceBoard.some((r) => r.name === who && Math.abs(r.time - time) < 0.005)) return;
+    this._raceBoard.push({ name: who, time });
+    this._raceBoard.sort((a, b) => a.time - b.time);
+    this.hud.showToast(`${who} bitirdi · ${formatTime(time)}`, 3);
+    this.audio.blip(520, 0.14, 0.06);
+  }
+
   /** Points the navigation at a gate without the "destination set" ceremony. */
   _raceAimAt(cp) {
     this.waypoint = { x: cp.x, z: cp.z };
@@ -965,7 +997,7 @@ class Game {
     this.race = null;
     this.raceGates.hide();
     document.getElementById('race-hud').classList.add('hidden');
-    document.getElementById('hud').classList.remove('racing');
+    document.getElementById('hud').classList.remove('racing', 'with-rivals');
     document.getElementById('race-count').classList.add('hidden');
     this.waypoint = this._wpBeforeRace || null;
     this._wpBeforeRace = null;
@@ -987,7 +1019,7 @@ class Game {
     // a wreck is the end of the attempt, whatever the clock says
     if (this.vehicle.dead) {
       this.abortRace(null);
-      this._showRaceResult(null, 'Araç hurdaya çıktı', null);
+      this._showRaceResult({ time: null, title: 'Araç hurdaya çıktı' });
       return;
     }
 
@@ -1026,8 +1058,19 @@ class Game {
       const record = !prev || time < prev.time;
       if (record) saveBest(this.raceBests, def.id, time, race.splits);
       const medal = medalFor(time, race.race.par);
+      // whoever was still out on the road is behind me by definition
+      const field = 1 + (this.coop?.racers(def.id).length ?? 0) + (this._raceBoard?.length ?? 0);
+      const place = 1 + (this._raceBoard?.filter((r) => r.time < time).length ?? 0);
+      this.coop?.sendRaceFinish(def.id, time);
+      // my own run goes on the board too, so a later finisher lands beside it
+      this._raceBoard = this._raceBoard || [];
+      this._raceBoard.push({ name: 'Sen', time, me: true });
+      this._raceBoard.sort((a, b) => a.time - b.time);
       this.abortRace(null);
-      this._showRaceResult(time, def.name, medal, record, prev?.time);
+      this._showRaceResult({
+        time, title: def.name, medal, record, prevBest: prev?.time,
+        place: field > 1 ? place : 0, field
+      });
       return;
     }
 
@@ -1052,10 +1095,44 @@ class Game {
     const m = race.dist;
     dist.textContent = race.state === 'countdown' ? ''
       : (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+    this._raceRivals(race);
+  }
+
+  /**
+   * The running order, when there is somebody to be in front of.
+   *
+   * Ranked on gates passed first and the distance to the next gate second,
+   * which is the only ordering that stays right on a route that doubles back
+   * on itself — the two cars can be close together on the map and a whole
+   * gate apart in the race.
+   */
+  _raceRivals(race) {
+    const el = document.getElementById('race-rivals');
+    if (!el) return;
+    const id = race.race.def.id;
+    const others = this.coop?.racers(id) ?? [];
+    const done = this._raceBoard ?? [];
+    const hud = document.getElementById('hud');
+    if (!others.length && !done.length) {
+      el.classList.add('hidden');
+      hud.classList.remove('with-rivals');
+      return;
+    }
+    hud.classList.add('with-rivals');
+    const rows = [
+      ...done.map((r) => ({ name: r.name, cp: 999, dist: 0, done: true })),
+      { name: 'Sen', cp: race.index, dist: race.dist, me: true },
+      ...others.map((r) => ({ name: r.name, cp: r.cp, dist: r.dist }))
+    ];
+    rows.sort((a, b) => (b.cp - a.cp) || (a.dist - b.dist));
+    el.classList.remove('hidden');
+    el.innerHTML = rows.map((r, i) =>
+      `<span class="${r.me ? 'me' : ''}">${i + 1}. ${r.name}${r.done ? ' ✔' : ` ${r.cp}/${race.total}`}</span>`
+    ).join('');
   }
 
   /** The card that says how it went, for a few seconds. */
-  _showRaceResult(time, title, medal, record = false, prevBest = null) {
+  _showRaceResult({ time, title, medal = null, record = false, prevBest = null, place = 0, field = 1 }) {
     const card = document.getElementById('race-result');
     const icon = time === null ? '💥' : (medal ? MEDAL[medal].icon : '🏁');
     let note = '';
@@ -1066,11 +1143,16 @@ class Game {
     card.innerHTML = `
       <div class="rr-medal">${icon}</div>
       <h3>${title}</h3>
+      ${place ? `<div class="rr-place">${place}. / ${field}</div>` : ''}
       <div class="rr-time">${time === null ? '--:--' : formatTime(time)}</div>
       <p class="rr-note${record && time !== null ? ' best' : ''}">${note}</p>`;
     card.classList.remove('hidden');
     this._raceResultT = 6;
-    if (time !== null) this.hud.showToast(medal ? `${MEDAL[medal].label} madalya!` : 'Yarış bitti', 2.6);
+    if (time === null) return;
+    this.hud.showToast(
+      place === 1 && field > 1 ? 'Birinci bitirdin!'
+        : (medal ? `${MEDAL[medal].label} madalya!` : 'Yarış bitti'), 2.6
+    );
   }
 
   toggleFullscreen() {
@@ -1165,14 +1247,23 @@ class Game {
   }
 
   /** Drops the car in the right-hand lane of whichever road is closest. */
-  _placeOnRoad(x, z, fallbackYaw) {
-    const near = this.network.nearestRoad(x, z);
+  _placeOnRoad(x, z, fallbackYaw, slot = 0) {
+    let near = this.network.nearestRoad(x, z);
+    // The cheap lookup can land on a stub that goes nowhere — the Ostim
+    // industrial roads are their own island — so anything off the connected
+    // network is thrown back and asked again the expensive way.
+    if (!near || !this.network.isMainEdge(near.edge)) {
+      const at = this.network.snapToDrivable(x, z);
+      if (at) near = { edge: at.edge, s: at.s };
+    }
     if (!near) {
-      this.vehicle.reset(x, z, fallbackYaw);
+      this.vehicle.reset(x + slot * 3.4, z, fallbackYaw);
       return;
     }
     const edge = this.network.edges[near.edge];
-    const s = clamp(near.s, 6, Math.max(6, edge.length - 6));
+    // a grid start: each extra car a length further back down the same lane,
+    // which is the only offset that cannot put somebody on the pavement
+    const s = clamp(near.s - slot * 6.5, 6, Math.max(6, edge.length - 6));
     const probe = this.network.pointAlong(edge, s, true);
 
     // keep whichever direction of travel is closest to the requested heading

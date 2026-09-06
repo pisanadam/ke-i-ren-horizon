@@ -177,112 +177,31 @@ export function saveBest(bests, id, time, splits) {
  * than offered and then found to be impossible.
  */
 /**
- * The edges of the largest connected piece of the road network.
+ * Pulls a point onto a piece of road a car can actually be put on.
  *
- * The map has 72 separate pieces: one that is the city, and seventy-one stubs
- * — an industrial estate that was never joined to its arterial, an airport
- * apron, a slip road that ends. A gate on one of those is a gate you cannot
- * drive to, so races are only ever snapped onto the big piece. Computed once
- * and kept on the network.
- */
-function mainComponent(network) {
-  if (network._raceMain) return network._raceMain;
-  const n = network.nodes.length;
-  const comp = new Int32Array(n).fill(-1);
-  let winner = -1;
-  let winnerSize = 0;
-  for (let i = 0; i < n; i++) {
-    if (comp[i] !== -1) continue;
-    let size = 0;
-    const stack = [i];
-    comp[i] = i;
-    while (stack.length) {
-      const c = stack.pop();
-      size++;
-      for (const eid of network.nodes[c].edges) {
-        const e = network.edges[eid];
-        const other = e.a === c ? e.b : e.a;
-        if (comp[other] === -1) { comp[other] = i; stack.push(other); }
-      }
-    }
-    if (size > winnerSize) { winnerSize = size; winner = i; }
-  }
-  const ok = new Uint8Array(network.edges.length);
-  for (let i = 0; i < network.edges.length; i++) ok[i] = comp[network.edges[i].a] === winner ? 1 : 0;
-  network._raceMain = ok;
-  return ok;
-}
-
-/**
- * Nearest point on the drivable network, wherever it is.
- *
- * `network.nearestRoad` only looks in the query cells around the point, so it
- * answers "null" for anything standing in the middle of a park — which is
- * exactly where a landmark tends to be. This walks the graph instead: a few
- * thousand segments, once per gate, at the moment a race is prepared.
+ * Two things disqualify a spot, and the network knows about both: a stub
+ * that is not joined to the rest of the city, and a spot with a building
+ * standing on it. Nought point one three per cent of this map's road
+ * centreline runs inside a solid box — mostly where a landmark's footprint
+ * swallows the drive that serves it — and a gate there is a gate nobody can
+ * pass, so a blocked spot is walked along its own road until it comes out.
  */
 function snapToNetwork(network, p, colliders) {
-  const ok = mainComponent(network);
-
-  // nearest point on each edge, cheapest first
-  const cand = [];
-  for (let i = 0; i < network.edges.length; i++) {
-    if (!ok[i]) continue;
-    const e = network.edges[i];
-    const path = e.path;
-    let bestS = 0;
-    let bestD2 = Infinity;
-    for (let j = 1; j < path.length; j++) {
-      const a = path[j - 1];
-      const b = path[j];
-      const vx = b.x - a.x;
-      const vz = b.z - a.z;
-      const len2 = vx * vx + vz * vz;
-      const t = len2 > 1e-6 ? clamp(((p.x - a.x) * vx + (p.z - a.z) * vz) / len2, 0, 1) : 0;
-      const dx = a.x + vx * t - p.x;
-      const dz = a.z + vz * t - p.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < bestD2) {
-        bestD2 = d2;
-        bestS = e.cum[j - 1] + Math.sqrt(len2) * t;
-      }
-    }
-    if (bestD2 < Infinity) cand.push({ edge: i, s: bestS, d2: bestD2 });
-  }
-  if (!cand.length) return null;
-  cand.sort((a, b) => a.d2 - b.d2);
-
-  /**
-   * A gate has to stand somewhere a car can be.
-   *
-   * Nought point eight per cent of this map's road centreline runs inside a
-   * solid box — mostly where a landmark's footprint swallows the drive that
-   * serves it. A gate there is a gate you can never pass, so a blocked spot
-   * is walked along its own road until it comes out the other side, and only
-   * then is the next road tried.
-   */
-  const blocked = (x, z) => !!(colliders && colliders.resolveCircle(x, z, 2.4, () => true));
-  const OFFSETS = [0, 12, -12, 24, -24, 40, -40, 60, -60];
-
-  for (const c of cand.slice(0, 14)) {
-    const e = network.edges[c.edge];
-    for (const off of OFFSETS) {
-      const s = clamp(c.s + off, 5, Math.max(5, e.length - 5));
-      const at = network.pointAlong(e, s, true);
-      if (blocked(at.x, at.z)) continue;
-      const hw = Math.max(4, (e.width || 12) * 0.5);
-      return {
-        x: at.x, y: at.y, z: at.z,
-        dx: at.dx, dz: at.dz,
-        name: p.name || '',
-        road: e.name || '',
-        moved: Math.hypot(at.x - p.x, at.z - p.z),
-        hw,
-        r: Math.max(MIN_GATE_R, hw + 7)
-      };
-    }
-  }
-  return null;
+  const blocked = colliders
+    ? (x, z) => !!colliders.resolveCircle(x, z, 2.4, () => true)
+    : null;
+  const at = network.snapToDrivable(p.x, p.z, blocked);
+  if (!at) return null;
+  const hw = Math.max(4, (at.width || 12) * 0.5);
+  return {
+    x: at.x, y: at.y, z: at.z,
+    dx: at.dx, dz: at.dz,
+    name: p.name || '',
+    road: at.name,
+    moved: at.moved,
+    hw,
+    r: Math.max(MIN_GATE_R, hw + 7)
+  };
 }
 
 export function prepareRace(def, network, colliders) {

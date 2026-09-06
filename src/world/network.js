@@ -630,4 +630,112 @@ export class RoadNetwork {
     }
     return this._drivable;
   }
+
+  /**
+   * Which edges belong to the road network proper.
+   *
+   * Measured on this map: the graph falls into 72 pieces, one of which holds
+   * 1583 of the 1746 junctions and the other 71 of which are stubs — an
+   * industrial estate that was never joined to its arterial, an airport
+   * apron, a slip road that ends. Being put down on one of those strands you
+   * on a few hundred metres of tarmac with no way off, so anything that
+   * *chooses* a piece of road for the player asks this first. Computed once.
+   *
+   * @returns {Uint8Array} 1 for every edge on the big piece
+   */
+  mainEdges() {
+    if (this._mainEdges) return this._mainEdges;
+    const n = this.nodes.length;
+    const comp = new Int32Array(n).fill(-1);
+    let winner = -1;
+    let winnerSize = 0;
+    for (let i = 0; i < n; i++) {
+      if (comp[i] !== -1) continue;
+      let size = 0;
+      const stack = [i];
+      comp[i] = i;
+      while (stack.length) {
+        const c = stack.pop();
+        size++;
+        for (const eid of this.nodes[c].edges) {
+          const e = this.edges[eid];
+          const other = e.a === c ? e.b : e.a;
+          if (comp[other] === -1) { comp[other] = i; stack.push(other); }
+        }
+      }
+      if (size > winnerSize) { winnerSize = size; winner = i; }
+    }
+    const ok = new Uint8Array(this.edges.length);
+    for (let i = 0; i < this.edges.length; i++) ok[i] = comp[this.edges[i].a] === winner ? 1 : 0;
+    this._mainEdges = ok;
+    return ok;
+  }
+
+  /** True when this edge is part of the connected road network. */
+  isMainEdge(edgeId) {
+    return this.mainEdges()[edgeId] === 1;
+  }
+
+  /**
+   * Nearest point on the connected road network, wherever it is.
+   *
+   * `nearestRoad` only looks in the query cells around the point, so it
+   * answers "nothing here" for anything standing in the middle of a park —
+   * which is exactly where a landmark tends to be — and it will happily
+   * return a stub that goes nowhere. This walks every edge instead: a few
+   * thousand segments, and it is only ever called when something is being
+   * placed, never in a frame.
+   *
+   * @param {function(number,number):boolean} [blocked] veto a candidate spot,
+   *   e.g. because a building stands on it; the search then walks along the
+   *   same road looking for a way past before trying the next road.
+   */
+  snapToDrivable(x, z, blocked = null) {
+    const ok = this.mainEdges();
+    const cand = [];
+    for (let i = 0; i < this.edges.length; i++) {
+      if (!ok[i]) continue;
+      const e = this.edges[i];
+      const path = e.path;
+      let bestS = 0;
+      let bestD2 = Infinity;
+      for (let j = 1; j < path.length; j++) {
+        const a = path[j - 1];
+        const b = path[j];
+        const vx = b.x - a.x;
+        const vz = b.z - a.z;
+        const len2 = vx * vx + vz * vz;
+        let t = len2 > 1e-6 ? ((x - a.x) * vx + (z - a.z) * vz) / len2 : 0;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        const dx = a.x + vx * t - x;
+        const dz = a.z + vz * t - z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestS = e.cum[j - 1] + Math.sqrt(len2) * t;
+        }
+      }
+      if (bestD2 < Infinity) cand.push({ edge: i, s: bestS, d2: bestD2 });
+    }
+    if (!cand.length) return null;
+    cand.sort((a, b) => a.d2 - b.d2);
+
+    const OFFSETS = blocked ? [0, 12, -12, 24, -24, 40, -40, 60, -60] : [0];
+    for (const c of cand.slice(0, blocked ? 14 : 1)) {
+      const e = this.edges[c.edge];
+      const top = Math.max(5, e.length - 5);
+      for (const off of OFFSETS) {
+        const s = Math.min(top, Math.max(5, c.s + off));
+        const at = this.pointAlong(e, s, true);
+        if (blocked && blocked(at.x, at.z)) continue;
+        return {
+          edge: c.edge, s,
+          x: at.x, y: at.y, z: at.z, dx: at.dx, dz: at.dz,
+          width: e.width, name: e.name || '',
+          moved: Math.hypot(at.x - x, at.z - z)
+        };
+      }
+    }
+    return null;
+  }
 }

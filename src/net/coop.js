@@ -36,6 +36,11 @@ class RemotePlayer {
     this.mapYaw = 0;
     this.mapSpeed = 0;
     this.mapFoot = false;
+    /** What race they are on, and how far through it. Null when not racing. */
+    this.raceId = null;
+    this.raceCp = 0;
+    this.raceDist = 0;
+    this.raceTime = 0;
     this.car = null;
     this.onFootModel = null;
     this.walkPhase = 0;
@@ -327,7 +332,39 @@ export class Coop {
       let p = this.peers.get(msg.id);
       if (!p) { this._add(msg.id, msg.nm); p = this.peers.get(msg.id); }
       p.push(msg, now);
+      p.raceId = msg.ri || null;
+      p.raceCp = msg.rc || 0;
+      p.raceDist = msg.rd || 0;
+      p.raceTime = msg.rt || 0;
+      return;
     }
+    // one player picks a race and everybody in the room drives it
+    if (msg.t === 'race') {
+      this.game.onRaceInvite?.(msg.race, this.peers.get(msg.id)?.name || 'Bir oyuncu');
+      return;
+    }
+    if (msg.t === 'rfin') {
+      this.game.onRaceFinish?.(msg.race, msg.time, this.peers.get(msg.id)?.name || 'Bir oyuncu');
+    }
+  }
+
+  /** Tells the room which race to drive. */
+  sendRaceStart(id) {
+    if (this.active) this.tp?.send({ t: 'race', race: id });
+  }
+
+  sendRaceFinish(id, time) {
+    if (this.active) this.tp?.send({ t: 'rfin', race: id, time: +time.toFixed(2) });
+  }
+
+  /** Everyone else currently on the same race, in running order. */
+  racers(id) {
+    const out = [];
+    for (const p of this.peers.values()) {
+      if (p.raceId !== id) continue;
+      out.push({ name: p.name, cp: p.raceCp, dist: p.raceDist, time: p.raceTime });
+    }
+    return out;
   }
 
   update(dt) {
@@ -342,6 +379,11 @@ export class Coop {
       const foot = g.state === 'foot';
       const v = g.vehicle;
       const a = foot ? g.onFoot : v;
+      // Race progress rides along in the snapshot rather than in packets of
+      // its own: it is three numbers fifteen times a second, and it has to
+      // arrive at the same rate as the position it belongs to or the running
+      // order would lag the cars it is ordering.
+      const race = g.race;
       this.tp.send({
         t: 's',
         n: ++this._seq,
@@ -359,7 +401,11 @@ export class Coop {
         foot: foot ? 1 : 0,
         car: v.spec.id,
         col: g.playerCar?.paintMat?.color?.getHex?.() ?? 0xffffff,
-        nm: this.name
+        nm: this.name,
+        ri: race ? race.race.def.id : 0,
+        rc: race ? race.index : 0,
+        rd: race ? Math.round(race.dist) : 0,
+        rt: race ? +race.time.toFixed(1) : 0
       });
     }
 
@@ -373,6 +419,18 @@ export class Coop {
       }
       p.update(now, dt);
     }
+  }
+
+  /**
+   * Which slot on the start line this player takes.
+   *
+   * Sorting the ids gives every machine the same answer without anybody
+   * having to be asked, so two cars never land on the same square metre.
+   */
+  gridSlot() {
+    if (!this.active || !this.tp) return 0;
+    const ids = [this.tp.id, ...this.peers.keys()].map(String).sort();
+    return Math.max(0, ids.indexOf(String(this.tp.id)));
   }
 
   /** Marker positions for the map and minimap. */
