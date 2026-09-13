@@ -1249,11 +1249,49 @@ class Game {
     this.state = 'driving';
     this.input.clearActions();
 
-    // drop the car on the nearest road, pointing along it
-    this._placeOnRoad(SHOWCASE.x, SHOWCASE.z, SHOWCASE.yaw);
+    // Every arrival starts somewhere different in the city, on a real road
+    // and away from players who are already there.
+    this._placeAtRandomCityRoad();
     this.rig.setMode('chase');
     this.rig.snapTo(this.vehicle);
     this.hud.showToast(`${this.vehicle.spec.name} · Ankara'ya hoş geldin`, 3.2);
+  }
+
+  /** Places a new arrival on a random connected city street. */
+  _placeAtRandomCityRoad() {
+    const main = this.network.mainEdges();
+    const candidates = this.network.edges.filter((e, i) => {
+      if (!main[i] || e.length < 45 || e.type === 'highway') return false;
+      const mid = e.path[Math.floor(e.path.length / 2)];
+      return Math.abs(mid.x) < 3300 && Math.abs(mid.z) < 3300;
+    });
+
+    for (let tries = 0; tries < 36 && candidates.length; tries++) {
+      const edge = candidates[Math.floor(Math.random() * candidates.length)];
+      const forward = Math.random() >= 0.5;
+      const s = 8 + Math.random() * Math.max(1, edge.length - 16);
+      const at = this.network.pointAlong(edge, s, forward);
+      const rx = -at.dz;
+      const rz = at.dx;
+      const lane = Math.min(edge.width * 0.25, edge.width * 0.5 - 1.6);
+      const x = at.x + rx * lane;
+      const z = at.z + rz * lane;
+      const yaw = Math.atan2(at.dx, at.dz);
+
+      if (this.colliders.overlaps(x, z, this.vehicle.spec.width * 0.55,
+        this.vehicle.spec.length * 0.42, yaw, 0.25)) continue;
+      let busy = false;
+      for (const p of this.coop?.peers?.values?.() ?? []) {
+        if (p.mapX !== null && Math.hypot(p.mapX - x, p.mapZ - z) < 24) { busy = true; break; }
+      }
+      if (busy) continue;
+
+      this.vehicle.reset(x, z, yaw);
+      this.terrain?.preload(x, z);
+      return;
+    }
+
+    this._placeOnRoad(SHOWCASE.x, SHOWCASE.z, SHOWCASE.yaw);
   }
 
   pause() {
@@ -1655,6 +1693,7 @@ class Game {
       this.vehicle.steer = 0;
       this.clockTime += dt;
     }
+    if ((driving || onFoot) && !paused) this.coop?.resolveLocalCollisions();
     this.vehicle.applyTo(this.playerCar);
     if (onFoot || this.onFoot?.riding) this.onFoot.applyToModel();
 

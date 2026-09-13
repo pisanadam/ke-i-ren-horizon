@@ -36,6 +36,9 @@ class RemotePlayer {
     this.mapYaw = 0;
     this.mapSpeed = 0;
     this.mapFoot = false;
+    this.mapY = 0;
+    this.mapVx = 0;
+    this.mapVz = 0;
     /** What race they are on, and how far through it. Null when not racing. */
     this.raceId = null;
     this.raceCp = 0;
@@ -151,12 +154,15 @@ class RemotePlayer {
     // Where the maps look this player up. It is kept here rather than read off
     // the model because the model is only worth moving when it is on screen,
     // while the map wants your friend's position from the other side of Ankara.
+    const snap = b ?? a;
     this.mapX = x;
+    this.mapY = y;
     this.mapZ = z;
     this.mapYaw = yaw;
     this.mapSpeed = speed;
+    this.mapVx = snap.vx ?? 0;
+    this.mapVz = snap.vz ?? 0;
 
-    const snap = b ?? a;
     this.mapFoot = !!snap.foot;
     if (snap.foot) {
       this._ensurePerson();
@@ -422,6 +428,114 @@ export class Coop {
         continue;
       }
       p.update(now, dt);
+    }
+  }
+
+  /**
+   * Physical contact with the cars and people received from the room.
+   * Every machine owns its local player and resolves its half of a contact;
+   * the other player's machine resolves the other half from the same stream.
+   */
+  resolveLocalCollisions() {
+    if (!this.active) return;
+    const g = this.game;
+    const localFoot = g.state === 'foot';
+    const y = localFoot ? g.onFoot.position.y : g.vehicle.position.y;
+
+    for (const p of this.peers.values()) {
+      if (p.mapX === null || Math.abs((p.mapY ?? 0) - y) > 2.8) continue;
+      const snap = p.snaps[p.snaps.length - 1];
+      if (!snap) continue;
+      if (localFoot) this._collideLocalPerson(p, snap);
+      else this._collideLocalCar(p, snap);
+    }
+  }
+
+  _collideLocalPerson(p, snap) {
+    const me = this.game.onFoot;
+    const remoteFoot = !!snap.foot;
+    const otherSpec = CAR_BY_ID[snap.car] || CARS[0];
+    const samples = remoteFoot ? [0] : [-0.28, 0.28];
+    const otherRadius = remoteFoot ? 0.36 : otherSpec.width * 0.47;
+    const otherFwdX = Math.sin(p.mapYaw);
+    const otherFwdZ = Math.cos(p.mapYaw);
+
+    let best = null;
+    for (const s of samples) {
+      const ox = p.mapX + otherFwdX * otherSpec.length * s;
+      const oz = p.mapZ + otherFwdZ * otherSpec.length * s;
+      let nx = me.position.x - ox;
+      let nz = me.position.z - oz;
+      let d = Math.hypot(nx, nz);
+      const minD = 0.34 + otherRadius;
+      if (d >= minD) continue;
+      if (d < 1e-4) { nx = Math.sin(me.yaw + Math.PI); nz = Math.cos(me.yaw + Math.PI); d = 1; }
+      const hit = { nx: nx / d, nz: nz / d, push: minD - d };
+      if (!best || hit.push > best.push) best = hit;
+    }
+    if (!best) return;
+
+    const share = remoteFoot ? 0.52 : 1;
+    me.position.x += best.nx * best.push * share;
+    me.position.z += best.nz * best.push * share;
+    me.speed *= remoteFoot ? 0.45 : 0.12;
+  }
+
+  _collideLocalCar(p, snap) {
+    const v = this.game.vehicle;
+    const own = v.spec;
+    const remoteFoot = !!snap.foot;
+    const other = CAR_BY_ID[snap.car] || CARS[0];
+    const ownFwdX = Math.sin(v.yaw);
+    const ownFwdZ = Math.cos(v.yaw);
+    const otherFwdX = Math.sin(p.mapYaw);
+    const otherFwdZ = Math.cos(p.mapYaw);
+    const ownSamples = [-0.28, 0.28];
+    const otherSamples = remoteFoot ? [0] : [-0.28, 0.28];
+    const ownRadius = own.width * 0.47;
+    const otherRadius = remoteFoot ? 0.36 : other.width * 0.47;
+
+    let best = null;
+    for (const a of ownSamples) {
+      const ax = v.position.x + ownFwdX * own.length * a;
+      const az = v.position.z + ownFwdZ * own.length * a;
+      for (const b of otherSamples) {
+        const bx = p.mapX + otherFwdX * other.length * b;
+        const bz = p.mapZ + otherFwdZ * other.length * b;
+        let nx = ax - bx;
+        let nz = az - bz;
+        let d = Math.hypot(nx, nz);
+        const minD = ownRadius + otherRadius;
+        if (d >= minD) continue;
+        if (d < 1e-4) { nx = -ownFwdX; nz = -ownFwdZ; d = 1; }
+        const hit = { nx: nx / d, nz: nz / d, push: minD - d, ax, az };
+        if (!best || hit.push > best.push) best = hit;
+      }
+    }
+    if (!best) return;
+
+    const otherMass = remoteFoot ? 85 : other.mass;
+    const share = remoteFoot ? 0.08 : clamp(otherMass / (own.mass + otherMass), 0.28, 0.72);
+    v.position.x += best.nx * best.push * share;
+    v.position.z += best.nz * best.push * share;
+
+    const rvx = v.velocity.x - (p.mapVx ?? 0);
+    const rvz = v.velocity.z - (p.mapVz ?? 0);
+    const closing = rvx * best.nx + rvz * best.nz;
+    if (closing >= 0) return;
+
+    const severity = -closing;
+    const bounce = remoteFoot ? 0.34 : 1.12;
+    v.velocity.x += best.nx * severity * bounce * share;
+    v.velocity.z += best.nz * severity * bounce * share;
+    v.velocity.multiplyScalar(remoteFoot ? 0.92 : 0.86);
+    v.yawRate *= remoteFoot ? 0.9 : 0.68;
+    v.impact = Math.max(v.impact, Math.min(1, severity / 18));
+
+    const now = performance.now() / 1000;
+    if (!remoteFoot && severity > 4.5 && now - (p.lastCollisionDent ?? 0) > 0.4) {
+      p.lastCollisionDent = now;
+      v.addDent(best.ax, best.az, best.nx, best.nz, severity);
     }
   }
 

@@ -54,6 +54,13 @@ bağlanır. Oda kodu yazmak veya bir co-op düğmesine basmak gerekmez. İlk gel
 oyuncu geçici WebRTC aktarıcısı olur; bu oyuncu ayrılırsa bağlı oyuncular kısa
 bir gecikmeden sonra yeniden buluşup yeni aktarıcıyı otomatik seçer.
 
+Oyuna başlayan her sürücü, ana yol ağı üzerindeki rastgele bir şehir sokağında
+doğar; başka bir oyuncunun üstüne doğmamak için yakın çevresi kontrol edilir.
+Çevrim içi araçlar ve yayalar birbirinin içinden geçmez: temas iki istemcide
+de konum düzeltmesi, hız kaybı ve araçlarda çarpışma darbesi oluşturur. Diğer
+oyuncular adlarıyla tam ekran haritada, yönleriyle mini haritada görünür; mini
+harita menzilinin dışındalarsa işaretleri doğru yönde çembere sabitlenir.
+
 ## Özel odalar (eski co-op altyapısı)
 
 Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
