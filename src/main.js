@@ -41,6 +41,11 @@ import { MapView } from './ui/mapview.js';
 import { Menu } from './ui/menu.js';
 import { Settings } from './ui/settings.js';
 import { Coop } from './net/coop.js';
+
+// Every visitor to the published site meets in this one public world. The
+// WebRTC room still elects a temporary relay player, but nobody has to type a
+// code or press a multiplayer button.
+const PUBLIC_WORLD_ROOM = '928417';
 import { RtcTransport } from './net/rtc.js';
 import { clamp, damp, lerp } from './util/math.js';
 import { installTouchGuards } from './util/touchGuards.js';
@@ -361,6 +366,7 @@ class Game {
     this.settings.applyAll();
     this.coop = new Coop(this);
     this._bindCoop();
+    this._joinPublicWorld();
     this.raceGates = new RaceGates(this.scene);
     this._bindRaces();
 
@@ -765,14 +771,15 @@ class Game {
     const list = document.getElementById('coop-list');
 
     document.getElementById('coop-hint').textContent =
-      'İkiniz de aynı 6 haneli kodu yazıp BAĞLAN deyin. Kimin oda kuracağını ' +
-      'oyun kendi seçer; bağlantı doğrudan cihazlar arasında kurulur.';
-    nameEl.value = localStorage.getItem('ankara-coop-ad') || '';
-    input.value = localStorage.getItem('ankara-coop-oda') || '';
+      'Siteye giren herkes otomatik olarak aynı çevrim içi Ankara dünyasına bağlanır.';
+    nameEl.value = localStorage.getItem('ankara-coop-ad') ||
+      `Sürücü ${Math.floor(1000 + Math.random() * 9000)}`;
+    input.value = PUBLIC_WORLD_ROOM;
+    input.disabled = true;
 
     const refresh = () => {
       status.textContent = this.coop.active
-        ? `Bağlı · ${this.coop.count} oyuncu · oda ${this.coop.room}`
+        ? `Çevrim içi · ${this.coop.count} oyuncu`
         : this.coop.status;
       list.innerHTML = '';
       for (const p of this.coop.peers.values()) {
@@ -799,7 +806,7 @@ class Game {
       this.input?.clearActions();
     });
     document.getElementById('coop-new').addEventListener('click', () => {
-      input.value = String(Math.floor(100000 + Math.random() * 900000));
+      input.value = PUBLIC_WORLD_ROOM;
     });
     document.getElementById('coop-leave').addEventListener('click', () => {
       this.coop.leave();
@@ -808,16 +815,10 @@ class Game {
     // One button, because there is no longer a wrong one to press: both
     // players type the same code and the room sorts out who hosts it.
     document.getElementById('coop-join').addEventListener('click', () => {
-      let code = input.value.replace(/\D/g, '');
-      if (code.length !== 6) {
-        code = String(Math.floor(100000 + Math.random() * 900000));
-        input.value = code;
-        this.hud.showToast(`Kod üretildi: ${code} · arkadaşına söyle`, 3.4);
-      }
-      localStorage.setItem('ankara-coop-oda', code);
+      const code = PUBLIC_WORLD_ROOM;
       localStorage.setItem('ankara-coop-ad', nameEl.value);
       if (!this.coop.join(code, nameEl.value || 'Oyuncu')) return;
-      this.hud.showToast(`${code} odasına bağlanılıyor…`, 2.6);
+      this.hud.showToast('Ortak dünyaya bağlanılıyor…', 2.6);
     });
 
     // When it is not going to work, say why and put the way out on screen
@@ -861,7 +862,35 @@ class Game {
     input.addEventListener('input', () => {
       input.value = input.value.replace(/\D/g, '').slice(0, 6);
     });
+    nameEl.addEventListener('change', () => {
+      const clean = nameEl.value.trim().slice(0, 16) || 'Oyuncu';
+      nameEl.value = clean;
+      localStorage.setItem('ankara-coop-ad', clean);
+    });
     refresh();
+  }
+
+  /** Join the public world immediately and re-elect a host if it disappears. */
+  _joinPublicWorld() {
+    const connect = () => {
+      if (this.coop.active || this.coop.tp) return;
+      const name = localStorage.getItem('ankara-coop-ad') ||
+        document.getElementById('coop-name')?.value || 'Oyuncu';
+      this.coop.join(PUBLIC_WORLD_ROOM, name);
+    };
+    this.coop.onDisconnect = () => {
+      clearTimeout(this._publicReconnectTimer);
+      this.coop.tp?.close();
+      this.coop.tp = null;
+      this._publicReconnectTimer = setTimeout(connect, 1800 + Math.random() * 2200);
+    };
+    window.addEventListener('online', () => {
+      if (!this.coop.active) {
+        this.coop.leave();
+        setTimeout(connect, 400);
+      }
+    });
+    connect();
   }
 
   // ------------------------------------------------------------------ races

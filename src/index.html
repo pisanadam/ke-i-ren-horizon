@@ -179,10 +179,10 @@
   <!-- ============ CO-OP ============ -->
   <div id="coop" class="screen hidden">
     <div class="settings-box coop-box">
-      <h2>Birlikte oyna</h2>
+      <h2>Ortak dünya</h2>
       <p class="coop-hint" id="coop-hint"></p>
 
-      <div class="coop-code">
+      <div class="coop-code hidden">
         <input id="coop-input" inputmode="numeric" maxlength="6" placeholder="000000"
                autocomplete="off" spellcheck="false" aria-label="Oda kodu" />
         <button id="coop-new" class="ghost-btn small">KOD ÜRET</button>
@@ -199,20 +199,16 @@
       <details class="coop-help">
         <summary>Nasıl çalışıyor?</summary>
         <p>
-          Sunucu yok. <b>İkiniz de aynı kodu yazıp BAĞLAN diyorsunuz</b> —
-          kimin oda kuracağına oyun kendi karar veriyor. Bağlantı kurulduktan
-          sonra arabalar doğrudan cihazdan cihaza gidiyor; oyun verisi kimsenin
-          sunucusundan geçmiyor.
+          Siteyi açan herkes otomatik olarak aynı dünyaya bağlanır. Diğer
+          oyuncuların araçlarını yolda, mini haritada ve büyük haritada görürsün.
         </p>
         <p>
-          Yalnız iki cihazın birbirini bulabilmesi için önce adres bilgisi
-          takas etmesi gerekiyor. Bunun için <code>ntfy.sh</code> kullanılıyor:
-          6 haneli kod orada sadece bir buluşma noktasının adı. Tanışma bitince
-          o servisle işimiz kalmıyor.
+          Bağlantı oyuncular arasında doğrudan kurulur. Odayı taşıyan oyuncu
+          ayrılırsa oyun kısa süre içinde yeni bir oda sahibi seçip tekrar bağlanır.
         </p>
       </details>
 
-      <details class="coop-help" id="coop-manual-help">
+      <details class="coop-help hidden" id="coop-manual-help">
         <summary>Bağlanamıyor musun? Elle bağlan</summary>
         <p>
           Okul ve iş ağları buluşma servisini engelleyebiliyor. O zaman
@@ -227,8 +223,8 @@
       </details>
 
       <div class="settings-actions">
-        <button id="coop-leave" class="ghost-btn small">AYRIL</button>
-        <button id="coop-join" class="primary">BAĞLAN</button>
+        <button id="coop-leave" class="ghost-btn small hidden">AYRIL</button>
+        <button id="coop-join" class="primary">YENİDEN BAĞLAN</button>
         <button id="coop-close" class="ghost-btn">KAPAT</button>
       </div>
     </div>

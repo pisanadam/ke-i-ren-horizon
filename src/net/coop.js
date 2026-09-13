@@ -213,6 +213,8 @@ export class Coop {
     this.onChange = () => {};
     /** 'signal' when the meeting service is unreachable, 'peer' when nobody came. */
     this.onTrouble = () => {};
+    /** Called when a live guest loses the room host. */
+    this.onDisconnect = () => {};
     this.isHost = false;
   }
 
@@ -252,11 +254,13 @@ export class Coop {
     };
     this.tp.onMessage = (msg) => this._handle(msg);
     this.tp.onClose = () => {
+      const wasActive = this.active;
       if (!this.active) this.status = 'bağlanılamadı';
       else this.status = 'bağlantı koptu';
       this.active = false;
       this._clearPeers();
       this.onChange();
+      if (wasActive) this.onDisconnect();
     };
     this.tp.connect();
     return true;

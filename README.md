@@ -47,7 +47,14 @@ npm run build:dist # isteyen olursa klasik çok dosyalı dist/ çıktısı
 
 ---
 
-## Birlikte oynamak (co-op)
+## Ortak çevrim içi dünya
+
+Yayınlanan siteyi açan herkes `928417` numaralı ortak dünyaya otomatik
+bağlanır. Oda kodu yazmak veya bir co-op düğmesine basmak gerekmez. İlk gelen
+oyuncu geçici WebRTC aktarıcısı olur; bu oyuncu ayrılırsa bağlı oyuncular kısa
+bir gecikmeden sonra yeniden buluşup yeni aktarıcıyı otomatik seçer.
+
+## Özel odalar (eski co-op altyapısı)
 
 Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
 adın. Aynı kodu giren herkes aynı Ankara'da buluşur; arkadaşının aracı
