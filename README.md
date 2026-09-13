@@ -266,6 +266,14 @@ gider, kavşaklarda genelde düz devam eder, önündeki araca göre yavaşlar,
 kırmızı ışıkta durur ve çarptığında itilir. Oyuncunun etrafında sürekli
 doğar/silinir, böylece nerede olursan ol cadde dolu görünür.
 
+**Yayalar ve ragdoll.** Şehirdeki insanlar kapsül değildir: yüzü modellenmiş
+baş, gövde, pelvis, eklemli kollar, eller, bacaklar ve ayaklar tek bir instanced
+iskelet sistemiyle çizilir. Yürürken eklemleri ayrı ayrı hareket eder. Bir araç
+çarptığında beden parçalarına ayrılmaz; eklemler bağlı kalır, kalça balistik
+harekete geçer ve bütün vücut çarpan aracın gerçek hızına göre dönerek savrulur.
+Yere çarpınca sekme ve sürtünmeyle durur, bir süre sonra başka bir kaldırımda
+yeniden dolaşıma katılır.
+
 **Yıkım.** Şehirdeki hiçbir şey kendiliğinden yıkılmaz; kırılması için senin
 çarpman gerekir ve her şeyin bir eşiği vardır: lamba direği 18 km/s, ağaç
 25 km/s, park etmiş araba 29 km/s, bina duvarı 79 km/s. Eşiği geçince nesne
@@ -273,7 +281,10 @@ birleştirilmiş meshten silinir, yerini rijit gövde çözücüsüne bırakır 
 gerçekten devrilir, savrulur, yuvarlanır. Duvarlar bütün hâlinde yıkılmaz:
 tabandaki 4,4 m'lik şerit 2,2 m'lik hücrelere bölünmüştür, çarptığın yerde
 araba genişliğinde bir delik açılır, üst katlar ayakta kalır ve açılan delikten
-binanın içine girilir — içerisi artık bir kabuktur, ortası boştur. Çarpma sesi
+binanın içine girilir. Deliğin beton kalınlığı, kırık yan yüzleri, üst lentosu
+ve içerideki zemini ayrıca çizilir; yüksek hızlı darbe üç hücrelik daha geniş
+bir açıklık oluşturur. Aynı binanın başka duvarlarında da yeni delikler
+açılabilir. Çarpma sesi
 sertliğe göre değişir (teneke ezilmesi, cam, çeliğin çınlaması), moloz ve toz
 saçılır.
 
@@ -284,7 +295,10 @@ eklenerek metal kırışır. Yer değiştirme yalnızca köşenin başlangıç k
 bağlıdır; bu yüzden dikiş yerlerinde üst üste duran ikizler hep birlikte hareket
 eder ve gövde asla yırtılmaz (ölçüldü: en kötü dikiş açıklığı 1,2 × 10⁻⁷ m).
 Göstergedeki **HASAR** çubuğu dolunca — üç şeritte 150 ile duvara, ya da birkaç
-binadan geçerek — araç patlar: alev, is, 18 parça enkaz ve yeni bir araç.
+binadan geçerek — araç patlar: alev ve isin yanında metal kaporta, ağır şasi,
+motor, yarı saydam camlar ve silindir biçiminde gerçekten yuvarlanan dört
+tekerlek ayrı rijit gövdelere dönüşür. Çok sert vurulan trafik araçları da aynı
+parçalanma sistemine girer.
 `R` her an kaportayı düzeltir. Patlamayı istemiyorsan **Ayarlar → Oyun →
 Araç hurdaya çıksın** kapatılır: kaporta yine yamulur ama araç asla hurdaya
 çıkmaz.
@@ -343,6 +357,7 @@ src/
 │   ├── ramps.js         yol dolgularını araziye bağlayan şevler
 │   ├── buildings.js     apartmanlar, dükkânlar, çatı detayları, duvar hücreleri
 │   ├── props.js         ağaçlar, lambalar, ışıklar, park hâlindeki araçlar
+│   ├── pedestrianCrowd.js eklemli instanced yayalar ve ragdoll fiziği
 │   ├── landmarks.js     Estergon, hastane, cami, stadyum, teleferik…
 │   ├── metro.js         viyadükler, peronlar, tarifeyle işleyen trenler
 │   ├── colliders.js     statik çarpışma ızgarası, delikler ve kabuklar

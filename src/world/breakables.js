@@ -20,6 +20,7 @@ const CELL = 24;
 export class Breakables {
   constructor(rigid) {
     this.rigid = rigid;
+    this.scene = rigid?.scene ?? null;
     this.items = [];
     this.cells = new Map();
     this.broken = 0;
@@ -68,7 +69,9 @@ export class Breakables {
    * @param {{vx:number, vz:number, speed:number}} blow what hit it
    */
   smash(item, blow) {
-    if (!item || item.gone) return false;
+    // Ordinary props disappear once. Buildings keep their remaining walls,
+    // so a later impact may open a second, separate way through the shell.
+    if (!item || (item.gone && !item.walls)) return false;
 
     // A building does not vanish — the wall you drove at does. Each face of a
     // block is its own quad, so the one facing the impact can be taken out on
@@ -143,11 +146,13 @@ export class Breakables {
     // neighbour, both rows of the reachable band. What is left of the wall
     // stays standing, which is the difference between a hole and a demolition.
     const hit = Math.min(wall.cols - 1, Math.floor(t * wall.cols));
-    const from = Math.max(0, Math.min(wall.cols - 2, hit - (t * wall.cols - hit < 0.5 ? 1 : 0)));
+    const bite = (blow?.speed ?? 0) > 34 ? 3 : 2;
+    const from = Math.max(0, Math.min(wall.cols - bite, hit - Math.floor(bite / 2)));
+    const to = Math.min(wall.cols - 1, from + bite - 1);
     const opened = [];
     wall.holes = wall.holes || new Set();
     for (let r = 0; r < wall.rows; r++) {
-      for (let c = from; c <= Math.min(wall.cols - 1, from + 1); c++) {
+      for (let c = from; c <= to; c++) {
         const n = r * wall.cols + c;
         if (wall.holes.has(n)) continue;
         wall.holes.add(n);
@@ -160,7 +165,7 @@ export class Breakables {
 
     // Where the hole is, in the world — the collider is told to let anything
     // through there, so the rest of the building still stops you.
-    const along = ((from + 1) / wall.cols) * 2 - 1;
+    const along = (from + to + 1) / wall.cols - 1;
     let hx;
     let hz;
     if (face === 0) { hx = along * hw; hz = hd; }
@@ -171,11 +176,17 @@ export class Breakables {
     const worldZ = item.z - hx * sn + hz * cs;
     if (item.box) {
       item.box.holes = item.box.holes || [];
-      item.box.holes.push({ x: worldX, z: worldZ, r: (2.2 * 2) / 2 + 1.2 });
+      const span = face < 2 ? hw * 2 : hd * 2;
+      const holeWidth = (to - from + 1) * span / wall.cols;
+      item.box.holes.push({ x: worldX, z: worldZ, r: holeWidth * 0.52 + 0.9 });
       // and from now on the footprint is a shell with a room in it, so what
       // you drove into is somewhere you can drive around
       if (item.box.shell === undefined) item.box.shell = 0.8;
     }
+
+    const span = face < 2 ? hw * 2 : hd * 2;
+    const holeWidth = (to - from + 1) * span / wall.cols;
+    this._showBreach(item, face, along, holeWidth, wall.bandH ?? 4.4);
 
     const first = !item.gone;
     item.gone = true;
@@ -188,6 +199,59 @@ export class Breakables {
     this._scatter({ ...item, x: worldX, z: worldZ, y: item.y }, blow);
     this.onBreak(item, { ...blow, x: worldX, z: worldZ, y: item.y + 1.5 });
     return true;
+  }
+
+  /** Adds concrete jambs, a lintel and a floor behind a new facade hole. */
+  _showBreach(item, face, along, width, height) {
+    if (!this.scene) return;
+    if (!this._concrete) {
+      this._concrete = new THREE.MeshStandardMaterial({ color: 0x77736c, roughness: 0.98 });
+      this._inside = new THREE.MeshStandardMaterial({ color: 0x4b4945, roughness: 1, side: THREE.DoubleSide });
+    }
+    const root = new THREE.Group();
+    root.position.set(item.x, item.y + 0.025, item.z);
+    root.rotation.y = item.rot ?? 0;
+    root.name = 'building-breach';
+    const hw = item.hw ?? 6;
+    const hd = item.hd ?? 6;
+    const depth = Math.min(3.6, (face < 2 ? hd : hw) * 0.62);
+    const centre = new THREE.Vector3();
+    const outward = new THREE.Vector3();
+    if (face === 0) { centre.set(along * hw, 0, hd); outward.set(0, 0, 1); }
+    else if (face === 1) { centre.set(-along * hw, 0, -hd); outward.set(0, 0, -1); }
+    else if (face === 2) { centre.set(hw, 0, -along * hd); outward.set(1, 0, 0); }
+    else { centre.set(-hw, 0, along * hd); outward.set(-1, 0, 0); }
+    const innerX = centre.x - outward.x * depth * 0.5;
+    const innerZ = centre.z - outward.z * depth * 0.5;
+
+    const add = (w, h, d, x, y, z, mat = this._concrete) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    };
+    const edge = 0.18;
+    if (face < 2) {
+      add(edge, height, depth, centre.x - width * 0.5, height * 0.5, innerZ);
+      add(edge, height, depth, centre.x + width * 0.5, height * 0.5, innerZ);
+      add(width + edge * 2, edge, depth, centre.x, height - edge * 0.5, innerZ);
+      add(width, 0.12, depth, centre.x, 0.035, innerZ, this._inside);
+    } else {
+      add(depth, height, edge, innerX, height * 0.5, centre.z - width * 0.5);
+      add(depth, height, edge, innerX, height * 0.5, centre.z + width * 0.5);
+      add(depth, edge, width + edge * 2, innerX, height - edge * 0.5, centre.z);
+      add(depth, 0.12, width, innerX, 0.035, centre.z, this._inside);
+    }
+    // Uneven masonry around the opening keeps the edge from looking laser-cut.
+    for (let i = 0; i < 7; i++) {
+      const side = i % 2 ? -1 : 1;
+      const y = 0.35 + (i / 7) * (height - 0.65);
+      const size = 0.10 + Math.random() * 0.16;
+      if (face < 2) add(size, size * 1.6, 0.34, centre.x + side * width * 0.5, y, centre.z - outward.z * 0.12);
+      else add(0.34, size * 1.6, size, centre.x - outward.x * 0.12, y, centre.z + side * width * 0.5);
+    }
+    this.scene.add(root);
   }
 
   /** Collapses a run of vertices onto one point, where nothing can see them. */
@@ -246,7 +310,7 @@ export class Breakables {
         : 1;
       const spread = p.spread ?? 0.5;
       // piece offsets are given in the thing's own frame
-      const yaw = item.yaw ?? 0;
+      const yaw = item.yaw ?? item.rot ?? 0;
       const cs = Math.cos(yaw);
       const sn = Math.sin(yaw);
       const dx = p.dx ?? 0;
@@ -256,7 +320,8 @@ export class Breakables {
         y: p.y,
         z: item.z - dx * sn + dz * cs,
         hx: p.hx, hy: p.hy, hz: p.hz,
-        yaw: (p.yaw ?? 0) + (item.yaw ?? 0),
+        yaw: (p.yaw ?? 0) + yaw,
+        shape: p.shape ?? 'box',
         colour: p.colour,
         mass: p.mass,
         restitution: p.restitution ?? 0.16,
@@ -370,15 +435,15 @@ export function carPieces(item) {
   const c = item.colour ?? 0x8a8f96;
   const y = item.y;
   const pieces = [
-    { y: y + 0.62, hx: 0.9, hy: 0.36, hz: 2.2, mass: 780, colour: c, spread: 0.25 },
-    { y: y + 1.28, dz: -0.2, hx: 0.78, hy: 0.31, hz: 1.1, mass: 210, colour: c, spread: 0.6 },
-    { y: y + 1.36, dz: -0.2, hx: 0.8, hy: 0.21, hz: 1.05, mass: 60, colour: 0x2b3a48, spread: 1.1 }
+    { y: y + 0.62, hx: 0.9, hy: 0.36, hz: 2.2, mass: 780, colour: c, spread: 0.25, shape: 'panel' },
+    { y: y + 1.28, dz: -0.2, hx: 0.78, hy: 0.31, hz: 1.1, mass: 210, colour: c, spread: 0.6, shape: 'panel' },
+    { y: y + 1.36, dz: -0.2, hx: 0.8, hy: 0.21, hz: 1.05, mass: 60, colour: 0x2b3a48, spread: 1.1, shape: 'glass' }
   ];
   for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
     pieces.push({
       y: y + 0.32, dx: sx * 0.86, dz: sz * 1.4,
       hx: 0.11, hy: 0.32, hz: 0.32,
-      mass: 24, colour: 0x14161a, spread: 0.9, restitution: 0.32
+      mass: 24, colour: 0x14161a, spread: 0.9, restitution: 0.32, shape: 'wheel'
     });
   }
   return pieces;

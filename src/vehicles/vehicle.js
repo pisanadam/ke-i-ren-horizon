@@ -321,7 +321,21 @@ export class Vehicle {
     }
 
     // ------------------------------------------------------------- vertical
-    const groundY = ground.heightAt(this.position.x, this.position.z);
+    // The chassis is supported by four tyres, not by one point under its
+    // centre.  Sampling the centre made a car hover beside crowned roads and
+    // over sharp terrain transitions even while its wheel animation tried to
+    // reach the ground independently.
+    const halfWB2 = spec.wheelBase * 0.5;
+    const halfTrack = spec.width * 0.42;
+    const wheelGround = (f, r) => ground.heightAt(
+      this.position.x + this._fwd.x * halfWB2 * f + this._right.x * halfTrack * r,
+      this.position.z + this._fwd.z * halfWB2 * f + this._right.z * halfTrack * r
+    );
+    const hFL = wheelGround(1, -1);
+    const hFR = wheelGround(1, 1);
+    const hRL = wheelGround(-1, -1);
+    const hRR = wheelGround(-1, 1);
+    const groundY = (hFL + hFR + hRL + hRR) * 0.25;
     this.groundY = groundY;
     if (this.airborne) {
       this.verticalVel -= G * dt;
@@ -341,7 +355,8 @@ export class Vehicle {
         this.airborne = true;
         this.verticalVel = 0;
       } else {
-        this.position.y = damp(this.position.y, groundY, 18, dt);
+        this.position.y = damp(this.position.y, groundY, 30, dt);
+        if (Math.abs(this.position.y - groundY) < 0.012) this.position.y = groundY;
       }
     }
 
@@ -349,16 +364,12 @@ export class Vehicle {
     // Sampled at the axles and at the track, not at some fixed distance: the
     // body plane then passes through the wheel contact points, which is what
     // keeps all four tyres on the ground instead of two floating and two sunk.
-    const halfWB2 = spec.wheelBase * 0.5;
-    const halfTrack = spec.width * 0.42;
     const fwdSlope = Math.atan2(
-      ground.heightAt(this.position.x + this._fwd.x * halfWB2, this.position.z + this._fwd.z * halfWB2) -
-        ground.heightAt(this.position.x - this._fwd.x * halfWB2, this.position.z - this._fwd.z * halfWB2),
+      (hFL + hFR) * 0.5 - (hRL + hRR) * 0.5,
       halfWB2 * 2
     );
     const sideSlope = Math.atan2(
-      ground.heightAt(this.position.x + this._right.x * halfTrack, this.position.z + this._right.z * halfTrack) -
-        ground.heightAt(this.position.x - this._right.x * halfTrack, this.position.z - this._right.z * halfTrack),
+      (hFR + hRR) * 0.5 - (hFL + hRL) * 0.5,
       halfTrack * 2
     );
     this.pitch = damp(this.pitch, -fwdSlope, 9, dt);

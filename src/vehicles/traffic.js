@@ -3,6 +3,7 @@ import { buildCarParts, CAR_MATERIALS } from './carModel.js';
 import { CAR_BY_ID, TRAFFIC_MIX, TRAFFIC_COLOURS } from './catalog.js';
 import { makeRng, clamp, damp, randRange } from '../util/math.js';
 import { QUALITY } from '../quality.js';
+import { scatterWreck } from './damage.js';
 
 const MAX_AGENTS = QUALITY.trafficAgents;
 
@@ -12,6 +13,7 @@ const MAX_AGENTS = QUALITY.trafficAgents;
  * jostling in traffic still just shoves, but a proper run at one launches it.
  */
 const FLING_SPEED = 9;
+const SHATTER_SPEED = 23;
 const SPAWN_MIN = 65;
 /**
  * Past this the glass, the lamps and the wheels come off a traffic car.
@@ -43,7 +45,7 @@ export class Traffic {
       this.agents.push({
         active: false, type: 0, colour: new THREE.Color(0xffffff),
         edge: null, forward: true, s: 0, lane: 0, laneOffset: 0,
-        speed: 0, desired: 12, x: 0, y: 0, z: 0, yaw: 0,
+        speed: 0, desired: 12, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
         nudgeX: 0, nudgeZ: 0, wheelSpin: 0, stopped: 0, honkCooldown: 0,
         body: null, flungFor: 0
       });
@@ -201,8 +203,23 @@ export class Traffic {
     const rz = p.dx;
     agent.x = p.x + rx * agent.laneOffset + agent.nudgeX;
     agent.z = p.z + rz * agent.laneOffset + agent.nudgeZ;
-    agent.y = p.y;
     agent.yaw = Math.atan2(p.dx, p.dz);
+    const spec = this.types[agent.type].spec;
+    const fwdX = Math.sin(agent.yaw);
+    const fwdZ = Math.cos(agent.yaw);
+    const rightX = -Math.cos(agent.yaw);
+    const rightZ = Math.sin(agent.yaw);
+    const wb = spec.wheelBase * 0.5;
+    const tr = spec.width * 0.41;
+    const h = (f, r) => this.world.ground.heightAt(
+      agent.x + fwdX * wb * f + rightX * tr * r,
+      agent.z + fwdZ * wb * f + rightZ * tr * r
+    );
+    const fl = h(1, -1); const fr = h(1, 1);
+    const rl = h(-1, -1); const rr = h(-1, 1);
+    agent.y = (fl + fr + rl + rr) * 0.25;
+    agent.pitch = -Math.atan2((fl + fr - rl - rr) * 0.5, wb * 2);
+    agent.roll = -Math.atan2((fr + rr - fl - rl) * 0.5, tr * 2);
   }
 
   /** Choose the next leg at a junction, preferring to carry straight on. */
@@ -474,6 +491,16 @@ export class Traffic {
               const lever = ((ox - a.x) * aFwdX + (oz - a.z) * aFwdZ) / Math.max(1, other.length);
               const side = ((ox - a.x) * -aFwdZ + (oz - a.z) * aFwdX) / Math.max(1, other.width);
               pv.crash = Math.max(pv.crash ?? 0, Math.min(1, vn / 16));
+              if (vn > SHATTER_SPEED && this.rigid) {
+                scatterWreck(
+                  this.rigid, other, a.colour.getHex(),
+                  { x: a.x, y: a.y, z: a.z }, a.yaw,
+                  { x: nx * push, z: nz * push }
+                );
+                a.active = false;
+                pv.addDent(px, pz, -nx, -nz, vn * 0.72);
+                return;
+              }
               this.fling(
                 a,
                 nx * push,
@@ -523,7 +550,7 @@ export class Traffic {
         // a car in the air is not upright, so it needs the whole rotation
         dummy.quaternion.copy(a.body.quat);
       } else {
-        dummy.rotation.set(0, a.yaw, 0);
+        dummy.rotation.set(a.pitch ?? 0, a.yaw, a.roll ?? 0, 'YXZ');
       }
       dummy.scale.setScalar(1);
       dummy.updateMatrix();

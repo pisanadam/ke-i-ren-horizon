@@ -292,6 +292,16 @@ class Game {
     this.traffic = new Traffic(this.world, this.scene);
     this.traffic.rigid = this.rigid;
     this.scene.add(this.traffic.group);
+    this.props.pedestrians.onHit = (person, speed) => {
+      const hard = Math.min(1, speed / 24);
+      this.audio?.thud(Math.max(0.22, hard));
+      this.rig?.addShake(hard * 0.42 * this.shakeScale);
+      this.effects?.burst(person.x, person.y + 0.8, person.z, 7 + Math.round(hard * 8), {
+        vx: person.vel.x * 0.22, vz: person.vel.z * 0.22,
+        spread: 1.1, lift: 1.7, size: 0.42, life: 0.7,
+        tint: [0.72, 0.70, 0.66]
+      });
+    };
 
     // ---- what a car sees when it looks around itself ---------------------
     // Only the big, still things go into the reflection probe. Trees, street
@@ -1704,7 +1714,7 @@ class Game {
       this.teleferik.update(dt);
       const focus = onFoot ? this.onFoot.position : this.vehicle.position;
       this.metro.update(dt, focus);
-      this.props.pedestrians.update(dt, this.clockTime, focus);
+      this.props.pedestrians.update(dt, this.clockTime, focus, driving ? this.vehicle : null);
       this.effects.update(dt);
       this.rigid.update(dt, focus);
       this._emitTyreEffects(dt);

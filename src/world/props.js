@@ -5,6 +5,7 @@ import { softDotTexture } from '../textures.js';
 import { makeRng, randRange, randPick } from '../util/math.js';
 import { QUALITY } from '../quality.js';
 import { mergeByTile, instanceByTile } from './tiles.js';
+import { PedestrianCrowd } from './pedestrianCrowd.js';
 
 /**
  * Everything that dresses the streets: pavement trees, lamp columns, signal
@@ -596,8 +597,8 @@ export function buildProps(network, ground, colliders) {
   signalLenses.forEach((s2, i) => { s2.slot = sets.lens.slots[i]; });
 
   // ---- pedestrians -------------------------------------------------------
-  const pedestrians = createPedestrians(network, rng);
-  group.add(pedestrians.mesh);
+  const pedestrians = createPedestrians(network, rng, ground);
+  group.add(pedestrians.group);
 
   // The instanced bits that have to vanish along with their column. Trees
   // filled theirs in as they were placed, so this must add to the list rather
@@ -633,101 +634,6 @@ export function buildProps(network, ground, colliders) {
 /** Walkers that shuffle along the pavements; purely cosmetic. */
 const PED_RANGE = 260;      // how far from the car pedestrians are kept
 
-function createPedestrians(network, rng) {
-  const COUNT = QUALITY.pedestrians;
-  const edges = network.edges.filter((e) => e.type !== 'highway' && e.length > 40);
-  const people = [];
-
-  const body = new THREE.CapsuleGeometry(0.22, 0.72, 4, 8);
-  body.translate(0, 0.82, 0);
-  const head = new THREE.SphereGeometry(0.15, 8, 6);
-  head.translate(0, 1.48, 0);
-  const geo = mergeGeometries([body, head], false);
-  body.dispose();
-  head.dispose();
-
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
-  const mesh = new THREE.InstancedMesh(geo, mat, COUNT);
-  mesh.castShadow = true;
-  mesh.name = 'pedestrians';
-
-  const palette = [0x33415c, 0x7d4b3a, 0x4a5d3a, 0x8a2f3a, 0x2d3a45, 0xb0a58c, 0x5c3f6b, 0x1f2933];
-  const colour = new THREE.Color();
-
-  for (let i = 0; i < COUNT; i++) {
-    const edge = edges.length ? edges[Math.floor(rng() * edges.length)] : null;
-    people.push({
-      edge,
-      s: rng() * (edge ? edge.length : 1),
-      dir: rng() > 0.5 ? 1 : -1,
-      side: rng() > 0.5 ? 1 : -1,
-      speed: randRange(rng, 0.9, 1.6),
-      phase: rng() * Math.PI * 2,
-      check: rng() * 2
-    });
-    colour.setHex(palette[Math.floor(rng() * palette.length)]);
-    mesh.setColorAt(i, colour);
-  }
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-  const dummy = new THREE.Object3D();
-  const probe = { x: 0, y: 0, z: 0, dx: 0, dz: 0 };
-
-  /**
-   * Moves someone to a street near the car. Ankara covers ninety square
-   * kilometres, so a fixed sprinkling of pedestrians would leave every
-   * pavement in sight empty; instead the same handful follow the player.
-   */
-  const rehome = (p, at) => {
-    for (let tries = 0; tries < 24; tries++) {
-      const e = edges[Math.floor(rng() * edges.length)];
-      if (!e) return;
-      const mid = e.path[Math.floor(e.path.length / 2)];
-      const d = Math.hypot(mid.x - at.x, mid.z - at.z);
-      if (d > PED_RANGE) continue;
-      p.edge = e;
-      p.s = rng() * e.length;
-      p.dir = rng() > 0.5 ? 1 : -1;
-      p.side = rng() > 0.5 ? 1 : -1;
-      return;
-    }
-  };
-
-  function update(dt, time, at) {
-    for (let i = 0; i < people.length; i++) {
-      const p = people[i];
-      if (at) {
-        p.check -= dt;
-        if (p.check <= 0) {
-          p.check = 1.5 + rng();
-          const mid = p.edge ? p.edge.path[Math.floor(p.edge.path.length / 2)] : null;
-          if (!mid || Math.hypot(mid.x - at.x, mid.z - at.z) > PED_RANGE * 1.35) rehome(p, at);
-        }
-      }
-      if (!p.edge) continue;
-      p.s += p.speed * p.dir * dt;
-      if (p.s > p.edge.length) {
-        p.s = p.edge.length;
-        p.dir = -1;
-      } else if (p.s < 0) {
-        p.s = 0;
-        p.dir = 1;
-      }
-      network.pointAlong(p.edge, p.s, true, probe);
-      const off = (p.edge.width * 0.5 + 0.4 + (p.edge.major ? 2.0 : 1.5)) * p.side;
-      const rx = -probe.dz;
-      const rz = probe.dx;
-      const x = probe.x + rx * off;
-      const z = probe.z + rz * off;
-      const bob = Math.abs(Math.sin(time * p.speed * 3.4 + p.phase)) * 0.06;
-      dummy.position.set(x, probe.y + 0.16 + bob, z);
-      dummy.rotation.set(0, Math.atan2(probe.dx * p.dir, probe.dz * p.dir), 0);
-      dummy.scale.set(1, 0.94 + bob * 0.6, 1);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  return { mesh, update };
+function createPedestrians(network, rng, ground) {
+  return new PedestrianCrowd(network, ground, rng);
 }

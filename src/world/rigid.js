@@ -55,6 +55,7 @@ class Body {
     this.friction = 0.62;
     this.alive = false;
     this.render = true;
+    this.shape = 'box';
     this.asleep = false;
     this.still = 0;
     this.life = 0;
@@ -81,6 +82,7 @@ class Body {
 export class RigidWorld {
   constructor(ground, scene) {
     this.ground = ground;
+    this.scene = scene;
     this.max = QUALITY.tier === 'mobile' ? 56 : 160;
     this.bodies = [];
     for (let i = 0; i < this.max; i++) this.bodies.push(new Body());
@@ -91,12 +93,39 @@ export class RigidWorld {
       color: 0xffffff, roughness: 0.82, metalness: 0.12, envMapIntensity: 2
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, this.max);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
     this.mesh.name = 'debris';
-    scene.add(this.mesh);
+
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.48, metalness: 0.48, envMapIntensity: 2.4
+    });
+    this.panelMesh = new THREE.InstancedMesh(geo, panelMat, this.max);
+    this.panelMesh.name = 'wreck-panels';
+
+    // The old wreck rendered tyres as cuboids.  A low-sided cylinder costs
+    // almost the same and, with full rigid-body orientation, actually rolls.
+    const wheelGeo = new THREE.CylinderGeometry(1, 1, 2, 14, 1);
+    wheelGeo.rotateZ(Math.PI / 2);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.04 });
+    this.wheelMesh = new THREE.InstancedMesh(wheelGeo, wheelMat, this.max);
+    this.wheelMesh.name = 'wreck-wheels';
+
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.18, metalness: 0.04,
+      transparent: true, opacity: 0.58, depthWrite: false, side: THREE.DoubleSide
+    });
+    this.glassMesh = new THREE.InstancedMesh(geo, glassMat, this.max);
+    this.glassMesh.name = 'wreck-glass';
+
+    this.renderMeshes = {
+      box: this.mesh, panel: this.panelMesh, wheel: this.wheelMesh, glass: this.glassMesh
+    };
+    for (const m of Object.values(this.renderMeshes)) {
+      m.castShadow = m !== this.glassMesh;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+      m.count = 0;
+      scene.add(m);
+    }
 
     this._dummy = new THREE.Object3D();
     this._m3 = new THREE.Matrix3();
@@ -144,6 +173,7 @@ export class RigidWorld {
     b.friction = o.friction ?? 0.62;
     b._mass(o.mass ?? (8 * b.half.x * b.half.y * b.half.z * 600));
     b.render = o.render !== false;
+    b.shape = this.renderMeshes[o.shape] ? o.shape : 'box';
     b.alive = true;
     b.asleep = false;
     b.still = 0;
@@ -332,24 +362,29 @@ export class RigidWorld {
 
   _render() {
     const d = this._dummy;
-    let n = 0;
+    const counts = { box: 0, panel: 0, wheel: 0, glass: 0 };
     for (const b of this.bodies) {
       if (!b.alive || !b.render) continue;
+      const shape = this.renderMeshes[b.shape] ? b.shape : 'box';
+      const mesh = this.renderMeshes[shape];
+      const n = counts[shape]++;
       d.position.copy(b.pos);
       d.quaternion.copy(b.quat);
-      d.scale.set(b.half.x * 2, b.half.y * 2, b.half.z * 2);
+      if (shape === 'wheel') d.scale.copy(b.half);
+      else d.scale.set(b.half.x * 2, b.half.y * 2, b.half.z * 2);
       d.updateMatrix();
-      this.mesh.setMatrixAt(n, d.matrix);
-      this.mesh.setColorAt(n, b.colour);
-      n++;
+      mesh.setMatrixAt(n, d.matrix);
+      mesh.setColorAt(n, b.colour);
     }
-    this.mesh.count = n;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    for (const [shape, mesh] of Object.entries(this.renderMeshes)) {
+      mesh.count = counts[shape];
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   clear() {
     for (const b of this.bodies) b.alive = false;
-    this.mesh.count = 0;
+    for (const m of Object.values(this.renderMeshes)) m.count = 0;
   }
 }

@@ -347,39 +347,39 @@ export function scatterWreck(rigid, spec, colour, pos, yaw, velocity) {
   const pieces = [
     // floor pan — the heavy bit, it barely leaves the ground
     { dx: 0, dy: ride + 0.16, dz: 0, hx: hw * 0.86, hy: 0.16, hz: hl * 0.78,
-      m: mass * 0.34, c: colour, up: 1.4, out: 0.5 },
+      m: mass * 0.34, c: 0x30343a, up: 0.8, out: 0.25, shape: 'box' },
     // roof and cabin sides
     { dx: 0, dy: ride + body + 0.42, dz: -hl * 0.12, hx: hw * 0.74, hy: 0.10, hz: hl * 0.34,
-      m: mass * 0.07, c: colour, up: 5.2, out: 2.0 },
+      m: mass * 0.07, c: colour, up: 4.2, out: 2.0, shape: 'panel' },
     { dx: -hw * 0.78, dy: ride + body + 0.18, dz: -hl * 0.1, hx: 0.07, hy: 0.3, hz: hl * 0.3,
-      m: mass * 0.04, c: colour, up: 4.4, out: 3.0 },
+      m: mass * 0.04, c: colour, up: 3.5, out: 3.0, shape: 'panel' },
     { dx: hw * 0.78, dy: ride + body + 0.18, dz: -hl * 0.1, hx: 0.07, hy: 0.3, hz: hl * 0.3,
-      m: mass * 0.04, c: colour, up: 4.4, out: 3.0 },
+      m: mass * 0.04, c: colour, up: 3.5, out: 3.0, shape: 'panel' },
     // bonnet and boot lid
     { dx: 0, dy: ride + body * 0.9, dz: hl * 0.52, hx: hw * 0.8, hy: 0.06, hz: hl * 0.22,
-      m: mass * 0.05, c: colour, up: 5.8, out: 2.6 },
+      m: mass * 0.05, c: colour, up: 4.4, out: 2.6, shape: 'panel' },
     { dx: 0, dy: ride + body * 0.9, dz: -hl * 0.62, hx: hw * 0.78, hy: 0.06, hz: hl * 0.18,
-      m: mass * 0.045, c: colour, up: 5.2, out: 2.4 },
+      m: mass * 0.045, c: colour, up: 4.0, out: 2.4, shape: 'panel' },
     // doors
     { dx: -hw, dy: ride + body * 0.5, dz: 0, hx: 0.08, hy: 0.36, hz: hl * 0.28,
-      m: mass * 0.05, c: colour, up: 4.0, out: 4.2 },
+      m: mass * 0.05, c: colour, up: 3.0, out: 4.2, shape: 'panel' },
     { dx: hw, dy: ride + body * 0.5, dz: 0, hx: 0.08, hy: 0.36, hz: hl * 0.28,
-      m: mass * 0.05, c: colour, up: 4.0, out: 4.2 },
+      m: mass * 0.05, c: colour, up: 3.0, out: 4.2, shape: 'panel' },
     // bumpers
     { dx: 0, dy: ride + 0.24, dz: hl * 0.96, hx: hw * 0.9, hy: 0.16, hz: 0.12,
-      m: mass * 0.03, c: dark, up: 6.4, out: 3.4 },
+      m: mass * 0.03, c: dark, up: 3.8, out: 3.4, shape: 'panel' },
     { dx: 0, dy: ride + 0.24, dz: -hl * 0.96, hx: hw * 0.9, hy: 0.16, hz: 0.12,
-      m: mass * 0.03, c: dark, up: 5.6, out: 3.2 },
+      m: mass * 0.03, c: dark, up: 3.6, out: 3.2, shape: 'panel' },
     // engine block, straight up and straight back down
     { dx: 0, dy: ride + 0.3, dz: hl * 0.5, hx: 0.32, hy: 0.28, hz: 0.34,
-      m: mass * 0.12, c: 0x33383e, up: 7.2, out: 1.2 },
+      m: mass * 0.12, c: 0x33383e, up: 2.2, out: 1.2, shape: 'box' },
     // windscreen and backlight, in pieces
     { dx: -0.3, dy: ride + body + 0.3, dz: hl * 0.2, hx: 0.26, hy: 0.02, hz: 0.3,
-      m: 18, c: glass, up: 6.0, out: 4.6 },
+      m: 18, c: glass, up: 5.0, out: 4.6, shape: 'glass' },
     { dx: 0.3, dy: ride + body + 0.3, dz: hl * 0.2, hx: 0.26, hy: 0.02, hz: 0.3,
-      m: 18, c: glass, up: 6.0, out: 4.6 },
+      m: 18, c: glass, up: 5.0, out: 4.6, shape: 'glass' },
     { dx: 0, dy: ride + body + 0.28, dz: -hl * 0.42, hx: 0.34, hy: 0.02, hz: 0.28,
-      m: 18, c: glass, up: 5.4, out: 4.2 }
+      m: 18, c: glass, up: 4.6, out: 4.2, shape: 'glass' }
   ];
 
   // wheels, which come off and roll away
@@ -389,12 +389,14 @@ export function scatterWreck(rigid, spec, colour, pos, yaw, velocity) {
     pieces.push({
       dx: sx * hw * 0.92, dy: wr, dz: sz * wb,
       hx: (spec.wheelWidth ?? 0.24) * 0.5, hy: wr, hz: wr,
-      m: 26, c: dark, up: 4.8, out: 5.0, bounce: 0.34
+      m: 26, c: dark, up: 3.2, out: 5.0, bounce: 0.34, shape: 'wheel'
     });
   }
 
   const cs = Math.cos(yaw);
   const sn = Math.sin(yaw);
+  const speed = Math.hypot(vx, vz);
+  const energy = clamp01(speed / 24);
   for (const p of pieces) {
     // the car's own frame: +Z is forward, +X is its right
     const wx = pos.x + p.dz * sn + p.dx * cs;
@@ -408,19 +410,24 @@ export function scatterWreck(rigid, spec, colour, pos, yaw, velocity) {
       z: wz,
       hx: p.hx, hy: p.hy, hz: p.hz,
       yaw,
+      pitch: p.pitch ?? 0,
+      roll: p.roll ?? 0,
+      shape: p.shape ?? 'panel',
       colour: p.c,
       mass: p.m,
       restitution: p.bounce ?? 0.14,
       friction: 0.72,
       // enough to throw it apart, not so much that the wreck ends up in the
       // next street: what lands should still read as one car
-      vx: vx * 0.5 + (ox / ol) * p.out * 0.62 + (Math.random() - 0.5) * 1.6,
-      vy: p.up * (0.7 + Math.random() * 0.6),
-      vz: vz * 0.5 + (oz / ol) * p.out * 0.62 + (Math.random() - 0.5) * 1.6,
-      sx: (Math.random() - 0.5) * 7,
-      sy: (Math.random() - 0.5) * 7,
-      sz: (Math.random() - 0.5) * 7
+      vx: vx * (p.shape === 'box' ? 0.82 : 0.68) + (ox / ol) * p.out * energy + (Math.random() - 0.5) * energy,
+      vy: p.up * (0.22 + energy * (0.48 + Math.random() * 0.28)),
+      vz: vz * (p.shape === 'box' ? 0.82 : 0.68) + (oz / ol) * p.out * energy + (Math.random() - 0.5) * energy,
+      sx: (Math.random() - 0.5) * (2.5 + energy * 7),
+      sy: (Math.random() - 0.5) * (2.5 + energy * 7),
+      sz: (Math.random() - 0.5) * (2.5 + energy * 7)
     });
   }
   return pieces.length;
 }
+
+function clamp01(v) { return Math.max(0.18, Math.min(1.35, v)); }

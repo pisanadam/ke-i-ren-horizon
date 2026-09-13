@@ -141,6 +141,31 @@ function headGeometry(skin, hair, seg) {
 }
 
 /**
+ * Shared geometry for the instanced city crowd.
+ *
+ * The close player character keeps the full joint hierarchy above.  Ninety
+ * pedestrians cannot each own twenty meshes, though, so the crowd draws one
+ * instanced mesh per anatomical part and supplies a different matrix for
+ * every joint.  These are the same tapered proportions and the same modelled
+ * face, just centred on their joints for fast forward-kinematics.
+ */
+export function createCrowdParts(quality = 'low') {
+  const seg = quality === 'high' ? 10 : 7;
+  const centre = (g) => g;
+  return {
+    pelvis: centre(limb(0.30, 0.20, 0.20, 0.88)),
+    torso: centre(limb(0.36, 0.46, 0.23, 0.86)),
+    head: headGeometry(0xb77a56, 0x24170f, seg),
+    upperArm: centre(limb(0.115, 0.28, 0.115, 0.88)),
+    foreArm: centre(limb(0.095, 0.27, 0.095, 0.84)),
+    hand: centre(limb(0.082, 0.105, 0.06, 0.90)),
+    thigh: centre(limb(0.15, 0.41, 0.16, 0.86)),
+    shin: centre(limb(0.12, 0.40, 0.13, 0.82)),
+    foot: new THREE.BoxGeometry(0.12, 0.08, 0.25)
+  };
+}
+
+/**
  * Builds one person.
  * @param {object} look  skin, hair, shirt, trousers, shoes, build
  */
