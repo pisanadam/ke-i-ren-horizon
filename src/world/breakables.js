@@ -24,6 +24,7 @@ export class Breakables {
     this.items = [];
     this.cells = new Map();
     this.broken = 0;
+    this.masonry = null;
     this.onBreak = () => {};
   }
 
@@ -90,13 +91,43 @@ export class Breakables {
   }
 
   /**
-   * Takes the struck wall out of a building.
-   *
-   * Which wall it is comes from the direction of travel in the building's own
-   * frame: whichever face the car is heading into. The whole footprint stops
-   * being solid at that point, so what is left is a shell you can drive into.
+   * Hands the walls over to the brick layer: from then on a struck wall turns
+   * into courses of brick that come apart one at a time.
    */
-  _breach(item, blow) {
+  setMasonry(masonry) {
+    this.masonry = masonry;
+    masonry.hideCell = (wall, n, item) => this._hide(wall.mesh, wall.cells[n], 4, item);
+  }
+
+  /**
+   * A knock that does not go through: a few bricks out of the face of the
+   * wall where the bumper met it, and the car stops all the same.
+   * @returns {boolean} whether anything came off
+   */
+  chip(item, blow) {
+    if (!this.masonry || !item?.walls) return false;
+    const now = performance.now();
+    if (item._chipAt && now - item._chipAt < 450) return false;
+    item._chipAt = now;
+    const { face, t } = this._locate(item, blow);
+    const wall = item.walls.find((w) => w.face === face);
+    if (!wall) return false;
+    const span = face < 2 ? wall.hw * 2 : wall.hd * 2;
+    const k = Math.max(0, Math.min(1, ((blow?.speed ?? 0) - 9) / 13));
+    const res = this.masonry.strike(item, wall, t * span, blow, {
+      rx: 0.35 + k * 0.75, ry: 0.3 + k * 0.6, yc: 0.55
+    });
+    if (!res || !res.removed) return false;
+    this.onOpened?.(item);
+    this.onBreak(item, { ...blow, speed: (blow?.speed ?? 8) * 0.5 });
+    return true;
+  }
+
+  /**
+   * Which wall of a building was hit, and how far along it (0..1, in the
+   * direction its texture runs), from where the car is and where it is going.
+   */
+  _locate(item, blow) {
     const yaw = item.rot ?? 0;
     const cs = Math.cos(yaw);
     const sn = Math.sin(yaw);
@@ -138,7 +169,18 @@ export class Breakables {
     else if (face === 2) t = (hd - oz) / (2 * hd);
     else t = (oz + hd) / (2 * hd);
     t = Math.max(0, Math.min(1, t));
+    return { face, t, cs, sn, hw, hd };
+  }
 
+  /**
+   * Takes the struck wall out of a building.
+   *
+   * Which wall it is comes from the direction of travel in the building's own
+   * frame: whichever face the car is heading into. The whole footprint stops
+   * being solid at that point, so what is left is a shell you can drive into.
+   */
+  _breach(item, blow) {
+    const { face, t, cs, sn, hw, hd } = this._locate(item, blow);
     const wall = item.walls.find((w) => w.face === face && !w.exhausted);
     if (!wall) return false;
 
@@ -149,19 +191,36 @@ export class Breakables {
     const bite = (blow?.speed ?? 0) > 34 ? 3 : 2;
     const from = Math.max(0, Math.min(wall.cols - bite, hit - Math.floor(bite / 2)));
     const to = Math.min(wall.cols - 1, from + bite - 1);
-    const opened = [];
-    wall.holes = wall.holes || new Set();
-    for (let r = 0; r < wall.rows; r++) {
-      for (let c = from; c <= to; c++) {
-        const n = r * wall.cols + c;
-        if (wall.holes.has(n)) continue;
-        wall.holes.add(n);
-        this._hide(wall.mesh, wall.cells[n], 4, item);
-        opened.push(n);
+
+    // Brick by brick where there is room for it: what the bumper reaches is
+    // knocked out, and the courses above come down until they arch.
+    const wallSpan = face < 2 ? wall.hw * 2 : wall.hd * 2;
+    const fast = Math.max(0, Math.min(1, ((blow?.speed ?? 0) - 22) / 18));
+    // centred on the same columns the collider opens, so the gap you can see
+    // is the gap you can drive through
+    const bricks = this.masonry?.strike(item, wall, (from + to + 1) / 2 / wall.cols * wallSpan, blow, {
+      rx: (to - from + 1) * wallSpan / wall.cols * 0.5 + 0.15,
+      ry: 1.45 + fast * 0.9,
+      yc: 0.5
+    });
+
+    if (!bricks) {
+      const opened = [];
+      wall.holes = wall.holes || new Set();
+      for (let r = 0; r < wall.rows; r++) {
+        for (let c = from; c <= to; c++) {
+          const n = r * wall.cols + c;
+          if (wall.holes.has(n)) continue;
+          wall.holes.add(n);
+          this._hide(wall.mesh, wall.cells[n], 4, item);
+          opened.push(n);
+        }
       }
+      if (!opened.length) return false;
+      if (wall.holes.size >= wall.cols * wall.rows) wall.exhausted = true;
+    } else if (!bricks.removed) {
+      return false;
     }
-    if (!opened.length) return false;
-    if (wall.holes.size >= wall.cols * wall.rows) wall.exhausted = true;
 
     // Where the hole is, in the world — the collider is told to let anything
     // through there, so the rest of the building still stops you.
@@ -186,7 +245,7 @@ export class Breakables {
 
     const span = face < 2 ? hw * 2 : hd * 2;
     const holeWidth = (to - from + 1) * span / wall.cols;
-    this._showBreach(item, face, along, holeWidth, wall.bandH ?? 4.4);
+    this._showBreach(item, face, along, holeWidth, wall.bandH ?? 4.4, !!bricks);
 
     const first = !item.gone;
     item.gone = true;
@@ -196,13 +255,14 @@ export class Breakables {
       // single-sided shell would look like a box with no far wall.
       this.onOpened?.(item);
     }
-    this._scatter({ ...item, x: worldX, z: worldZ, y: item.y }, blow);
+    // the bricks are the rubble; slabs are only for a wall that never was brick
+    if (!bricks) this._scatter({ ...item, x: worldX, z: worldZ, y: item.y }, blow);
     this.onBreak(item, { ...blow, x: worldX, z: worldZ, y: item.y + 1.5 });
     return true;
   }
 
   /** Adds concrete jambs, a lintel and a floor behind a new facade hole. */
-  _showBreach(item, face, along, width, height) {
+  _showBreach(item, face, along, width, height, bricks = false) {
     if (!this.scene) return;
     if (!this._concrete) {
       this._concrete = new THREE.MeshStandardMaterial({ color: 0x77736c, roughness: 0.98 });
@@ -231,6 +291,14 @@ export class Breakables {
       mesh.receiveShadow = true;
       root.add(mesh);
     };
+    // In brick, the hole's edges are the bricks themselves: all it needs is
+    // the floor of the room behind it.
+    if (bricks) {
+      if (face < 2) add(width, 0.12, depth, centre.x, 0.035, innerZ, this._inside);
+      else add(depth, 0.12, width, innerX, 0.035, centre.z, this._inside);
+      this.scene.add(root);
+      return;
+    }
     const edge = 0.18;
     if (face < 2) {
       add(edge, height, depth, centre.x - width * 0.5, height * 0.5, innerZ);

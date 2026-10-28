@@ -274,16 +274,29 @@ harekete geçer ve bütün vücut çarpan aracın gerçek hızına göre dönere
 Yere çarpınca sekme ve sürtünmeyle durur, bir süre sonra başka bir kaldırımda
 yeniden dolaşıma katılır.
 
+**Apartmanlar.** Bloklar düz kutu değildir: sokağa bakan cephede her katta
+dışarı taşan beton döşemeli, dolu korkuluklu ve küpeşteli 3B balkonlar vardır
+(uzun cephelerde köşelerde iki sıra, kısa cephelerde ortada bir sıra). Balkonlar
+karelere bölünmüş instanced katmanda çizilir, uzaktakiler hiç gönderilmez.
+
 **Yıkım.** Şehirdeki hiçbir şey kendiliğinden yıkılmaz; kırılması için senin
 çarpman gerekir ve her şeyin bir eşiği vardır: lamba direği 18 km/s, ağaç
 25 km/s, park etmiş araba 29 km/s, bina duvarı 79 km/s. Eşiği geçince nesne
 birleştirilmiş meshten silinir, yerini rijit gövde çözücüsüne bırakır ve
-gerçekten devrilir, savrulur, yuvarlanır. Duvarlar bütün hâlinde yıkılmaz:
-tabandaki 4,4 m'lik şerit 2,2 m'lik hücrelere bölünmüştür, çarptığın yerde
-araba genişliğinde bir delik açılır, üst katlar ayakta kalır ve açılan delikten
-binanın içine girilir. Deliğin beton kalınlığı, kırık yan yüzleri, üst lentosu
-ve içerideki zemini ayrıca çizilir; yüksek hızlı darbe üç hücrelik daha geniş
-bir açıklık oluşturur. Aynı binanın başka duvarlarında da yeni delikler
+gerçekten devrilir, savrulur, yuvarlanır. Duvarlar bütün hâlinde yıkılmaz,
+**tuğla tuğla** dağılır: bir duvara çarptığın anda o bölgedeki cephe, Ankara
+apartmanlarının sıvasının altındaki gibi şaşırtmalı örülmüş kırmızı tuğla
+sıralarına dönüşür (≈42 × 21 cm, 24 cm kalınlık). Tamponun ulaştığı tuğlalar
+pürüzlü bir kenarla yerinden sökülür ve aracın hızıyla binanın içine fırlar;
+ardından her sıra yeniden taşıyıcı arar — bir tuğla ya alttakinin üstünde durur
+ya da komşuları onu en fazla bir tuğla boyu boşluğa taşıyabilir. Bu yüzden
+deliğin üstü kendiliğinden kademeli bir kemer biçiminde çöker, kenarda kalan
+tuğlalar da birkaç santim kayıp çatlak görüntüsü verir. Düşen her tuğla kendi
+rijit gövde havuzunda yere çarpar, devrilir ve yığın oluşturur. 79 km/s'nin
+altındaki darbeler duvarı delmez ama çarptığın yerden birkaç tuğla koparır
+(32 km/s üstü). Araba genişliğindeki açıklıktan binanın içine girilir; deliğin
+arkasına iç zemin çizilir, yüksek hızlı darbe daha geniş bir açıklık açar ve
+aynı binanın başka duvarlarında da yeni delikler
 açılabilir. Çarpma sesi
 sertliğe göre değişir (teneke ezilmesi, cam, çeliğin çınlaması), moloz ve toz
 saçılır.
@@ -355,13 +368,14 @@ src/
 │   ├── terrainChunks.js oyuncunun çevresinde örülen ayrıntılı arazi
 │   ├── roads.js         asfalt, kaldırım, bordür, yol çizgileri
 │   ├── ramps.js         yol dolgularını araziye bağlayan şevler
-│   ├── buildings.js     apartmanlar, dükkânlar, çatı detayları, duvar hücreleri
+│   ├── buildings.js     apartmanlar, dükkânlar, 3B balkonlar, çatı detayları, duvar hücreleri
 │   ├── props.js         ağaçlar, lambalar, ışıklar, park hâlindeki araçlar
 │   ├── pedestrianCrowd.js eklemli instanced yayalar ve ragdoll fiziği
 │   ├── landmarks.js     Estergon, hastane, cami, stadyum, teleferik…
 │   ├── metro.js         viyadükler, peronlar, tarifeyle işleyen trenler
 │   ├── colliders.js     statik çarpışma ızgarası, delikler ve kabuklar
 │   ├── breakables.js    kırılan direk, ağaç, araba ve duvarlar
+│   ├── masonry.js       çarpılan duvarları tuğla tuğla örüp yıkan katman
 │   ├── rigid.js         enkaz için rijit gövde çözücüsü
 │   ├── tiles.js         şehri karelere bölen çizim/eleme katmanı
 │   ├── reflections.js   araç yansımaları için ortam sondası

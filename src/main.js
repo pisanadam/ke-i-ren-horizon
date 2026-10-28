@@ -15,6 +15,7 @@ import { SkyEnv } from './world/skyEnv.js';
 import { Reflections, markReflective } from './world/reflections.js';
 import { RigidWorld } from './world/rigid.js';
 import { Breakables } from './world/breakables.js';
+import { Masonry } from './world/masonry.js';
 import { TileWorld } from './world/tiles.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
@@ -56,6 +57,8 @@ const SHOWCASE = { x: 556, z: -184, yaw: -0.55 };
 
 /** How fast you have to be going, in m/s, to take each thing out. */
 const NEED_SPEED = { lamba: 5, agac: 7, park: 8, bina: 22 };
+/** Below going through, the speed at which a wall still loses a few bricks. */
+const CHIP_SPEED = 9;
 /** What is left of your speed once you have. */
 const TOLL = { lamba: 0.94, agac: 0.86, park: 0.76, bina: 0.42 };
 /** And what it costs your own bodywork, as a share of the speed you hit it at. */
@@ -77,6 +80,7 @@ const DEAD_INPUT = { steer: 0, throttle: 0, brake: 1, handbrake: true };
  */
 const LAYER_RANGE = {
   'roof-details': 0.30,
+  balconies: 0.32,
   'lamp-pools': 0.26,
   // Pairs that belong together get the same reach, or you get the half of one
   // that is left: a lamp head floating where its pole stopped, a canopy over
@@ -249,6 +253,16 @@ class Game {
     this.breakables = new Breakables(this.rigid);
     for (const b of props.breakables) this.breakables.add(b);
     for (const b of buildings.breakables) this.breakables.add(b);
+    // Walls come apart as bricks, and the bricks get a pool of their own: a
+    // hole is a couple of hundred of them, and they must not push the wreck
+    // of a car out of the shared one.
+    this.brickRubble = new RigidWorld(this.ground, this.scene, {
+      max: QUALITY.tier === 'mobile' ? 150 : 460,
+      life: 60,
+      name: 'brick-rubble',
+      material: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 })
+    });
+    this.breakables.setMasonry(new Masonry(this.scene, this.brickRubble));
     // With a wall missing you look straight through the shell, so the facades
     // stop culling their back faces the first time one is opened up.
     this.breakables.onOpened = () => {
@@ -424,7 +438,14 @@ class Game {
       // What it takes to go through, and what it costs you. A lamp column is
       // barely there; a wall is a wall, and needs a proper run at it.
       const need = NEED_SPEED[item.kind] ?? 5;
-      if (speed < need) return false;
+      if (speed < need) {
+        // Too slow to go through a wall is not too slow to mark it: the
+        // bricks the bumper met come out of the face, and the car stops.
+        if (item.kind === 'bina' && speed > CHIP_SPEED) {
+          this.breakables.chip(item, { speed, vx: dx * speed, vz: dz * speed, x: px, z: pz });
+        }
+        return false;
+      }
       if (!this.breakables.smash(item, {
         speed, vx: dx * speed, vz: dz * speed, x: px, z: pz
       })) return false;
@@ -1717,6 +1738,7 @@ class Game {
       this.props.pedestrians.update(dt, this.clockTime, focus, driving ? this.vehicle : null);
       this.effects.update(dt);
       this.rigid.update(dt, focus);
+      this.brickRubble.update(dt, focus);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
       this.reflections.update(

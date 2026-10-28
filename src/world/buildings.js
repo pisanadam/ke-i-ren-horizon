@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { mergeByTile } from './tiles.js';
+import { mergeByTile, instanceByTile } from './tiles.js';
 import { facadeTexture, shopTexture, roofTexture, FACADE_KEYS } from '../textures.js';
 import { LANDMARKS, MAP, DISTRICT_GRIDS } from './mapData.js';
 import { makeRng, clamp, randRange, randPick } from '../util/math.js';
@@ -16,6 +16,36 @@ const SHOP_TEX_W = 24;
 /** How tall the knockable band at the foot of a wall is, and how wide a cell. */
 const BAND_H = 4.4;
 const CELL_W = 2.2;
+
+/** A balcony: two bays wide, hung off the wall at floor level. */
+const BALC_W = BAY * 2 - 0.5;
+const BALC_D = 1.25;
+const BALCONY_TINTS = [0xffffff, 0xf3e6d6, 0xe3ece6, 0xf0dfdf, 0xe6e4f0, 0xfaf3dc];
+
+/**
+ * One balcony, outward along +Z from a wall at z = 0: a concrete slab, a
+ * solid parapet across the front and down both sides. Every apartment's
+ * balconies share this and are drawn instanced, tile by tile.
+ */
+function balconyGeometry() {
+  const parts = [];
+  const box = (w, h, d, x, y, z, colour) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    parts.push(colouredGeo(g, colour));
+  };
+  const slab = 0.16;
+  const ph = 1.0;
+  box(BALC_W, slab, BALC_D, 0, slab / 2, BALC_D / 2, 0x9c9890);
+  box(BALC_W, ph, 0.1, 0, slab + ph / 2, BALC_D - 0.05, 0xe2ddd2);
+  box(0.1, ph, BALC_D - 0.1, -BALC_W / 2 + 0.05, slab + ph / 2, (BALC_D - 0.1) / 2, 0xe2ddd2);
+  box(0.1, ph, BALC_D - 0.1, BALC_W / 2 - 0.05, slab + ph / 2, (BALC_D - 0.1) / 2, 0xe2ddd2);
+  // the handrail capping the parapet
+  box(BALC_W + 0.06, 0.06, 0.16, 0, slab + ph + 0.03, BALC_D - 0.05, 0x4a4c4f);
+  const geo = mergeGeometries(parts, false);
+  parts.forEach((g) => g.dispose());
+  return geo;
+}
 
 /**
  * Four side walls of a box, UV-mapped so the facade texture tiles per floor.
@@ -68,7 +98,7 @@ function wallBox(w, h, d, texW, texH, vOffset = 0) {
    */
   const face = (index, n, uSpan, at) => {
     const cols = Math.max(1, Math.round(uSpan * texW / CELL_W));
-    const rec = { face: index, cols, rows, bandH, cells: [], upper: null };
+    const rec = { face: index, cols, rows, bandH, cells: [], upper: null, hw, hd };
 
     // the reachable band, bottom row first
     for (let r = 0; r < rows; r++) {
@@ -145,6 +175,7 @@ export function buildBuildings(network, ground, colliders) {
   const shopGeos = [];
   const roofGeos = [];
   const detailGeos = [];
+  const balconies = [];
 
   const placed = [];
   const placedCells = new Map();
@@ -409,6 +440,37 @@ export function buildBuildings(network, ground, colliders) {
           detailGeos.push(colouredGeo(g, 0x1d2a46));
         }
 
+        // Balconies on the street side, stacked floor over floor in the same
+        // bays — corner pairs on a long front, one in the middle otherwise.
+        // Their own generator, so adding them moves nothing else in the city.
+        {
+          const brng = makeRng(4049 + count * 131);
+          if (floors >= 3 && brng() < 0.82) {
+            const face = side > 0 ? 3 : 2;
+            const bays = Math.round(dSnap / BAY);
+            const ks = bays >= 5 && QUALITY.tier !== 'mobile' ? [1, bays - 1] : [Math.floor(bays / 2)];
+            const tint = BALCONY_TINTS[Math.floor(brng() * BALCONY_TINTS.length)];
+            const hwB = wSnap / 2;
+            const hdB = dSnap / 2;
+            const cs = Math.cos(rot);
+            const sn = Math.sin(rot);
+            for (let f = 1; f < floors; f++) {
+              for (const k of ks) {
+                const u = k * BAY;
+                const lx = face === 3 ? -hwB : hwB;
+                const lz = face === 3 ? -hdB + u : hdB - u;
+                balconies.push({
+                  x: cx + lx * cs + lz * sn,
+                  y: gy + baseY + f * FLOOR,
+                  z: cz - lx * sn + lz * cs,
+                  yaw: rot + (face === 3 ? -Math.PI / 2 : Math.PI / 2),
+                  tint
+                });
+              }
+            }
+          }
+        }
+
         breakables.push({
           kind: 'bina', x: cx, y: gy, z: cz, rot,
           height: baseY + bodyH, hw: wSnap / 2, hd: dSnap / 2,
@@ -467,6 +529,24 @@ export function buildBuildings(network, ground, colliders) {
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
     'roof-details'
   );
+
+  if (balconies.length) {
+    const tint = new THREE.Color();
+    sets.balconies = instanceByTile(
+      balconies,
+      balconyGeometry(),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86 }),
+      'balconies',
+      (b, i, d) => {
+        d.position.set(b.x, b.y, b.z);
+        d.rotation.set(0, b.yaw, 0);
+        d.scale.set(1, 1, 1);
+        return tint.setHex(b.tint);
+      }
+    );
+    for (const t of sets.balconies.tiles) t.mesh.receiveShadow = true;
+    group.add(sets.balconies.group);
+  }
 
   // Resolve every wall to the tile mesh it ended up in and its offset there.
   // A wall whose tile came out empty is simply not breakable.

@@ -80,20 +80,27 @@ class Body {
 }
 
 export class RigidWorld {
-  constructor(ground, scene) {
+  /**
+   * @param {object} [opts] `max` pool size, `life` seconds before a resting
+   *   piece is recycled, `name` and `material` for the box mesh — the brick
+   *   rubble runs in a pool of its own so a collapsing wall cannot evict the
+   *   wreck of your car
+   */
+  constructor(ground, scene, opts = {}) {
     this.ground = ground;
     this.scene = scene;
-    this.max = QUALITY.tier === 'mobile' ? 56 : 160;
+    this.max = opts.max ?? (QUALITY.tier === 'mobile' ? 56 : 160);
+    this.life = opts.life ?? MAX_LIFE;
     this.bodies = [];
     for (let i = 0; i < this.max; i++) this.bodies.push(new Body());
     this.cursor = 0;
 
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({
+    const mat = opts.material ?? new THREE.MeshStandardMaterial({
       color: 0xffffff, roughness: 0.82, metalness: 0.12, envMapIntensity: 2
     });
-    this.mesh = new THREE.InstancedMesh(geo, mat, this.max);
-    this.mesh.name = 'debris';
+    this.mesh = new THREE.InstancedMesh(opts.geometry ?? geo, mat, this.max);
+    this.mesh.name = opts.name ?? 'debris';
 
     const panelMat = new THREE.MeshStandardMaterial({
       color: 0xffffff, roughness: 0.48, metalness: 0.48, envMapIntensity: 2.4
@@ -193,7 +200,7 @@ export class RigidWorld {
     for (const b of this.bodies) {
       if (!b.alive) continue;
       b.life += dt;
-      if (b.life > MAX_LIFE || (focus && Math.hypot(b.pos.x - focus.x, b.pos.z - focus.z) > 420)) {
+      if (b.life > this.life || (focus && Math.hypot(b.pos.x - focus.x, b.pos.z - focus.z) > 420)) {
         b.alive = false;
         continue;
       }
