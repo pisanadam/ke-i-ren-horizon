@@ -55,12 +55,13 @@ export function brickMaterial(material, { facade }) {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute float aVar;
-${facade ? 'attribute vec4 aUvRect;' : ''}
+${facade ? 'attribute vec4 aUvRect;' : 'attribute float aFade;\nvarying float vFade;'}
 varying vec3 vBrick;
 varying float vBrickVar;`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
 vBrick = position;
 vBrickVar = aVar;
+${facade ? '' : 'vFade = aFade;'}
 ${facade ? `vec2 brickUv = aUvRect.xy + (position.xy + 0.5) * aUvRect.zw;
 #ifdef USE_MAP
 vMapUv = (mapTransform * vec3(brickUv, 1.0)).xy;
@@ -73,8 +74,15 @@ vEmissiveMapUv = (emissiveMapTransform * vec3(brickUv, 1.0)).xy;
       .replace('#include <common>', `#include <common>
 uniform vec3 uPlaster;
 varying vec3 vBrick;
-varying float vBrickVar;`)
+varying float vBrickVar;
+${facade ? '' : 'varying float vFade;'}`)
       .replace(anchor, `${anchor}
+${facade ? '' : `// dissolving: a stable screen-space dither eats the piece away, so it
+// fades without being transparent (no sorting, no depth trouble)
+if (vFade < 0.999) {
+  float dither = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+  if (dither > vFade) discard;
+}`}
 float brickOuter = step(0.4995, vBrick.z);
 {
   vec3 plaster = ${facade ? 'uPlaster' : 'diffuseColor.rgb'};
@@ -117,7 +125,23 @@ export function rubbleGeometry(capacity) {
   const geo = brickGeometry(capacity, false);
   const v = geo.attributes.aVar.array;
   for (let i = 0; i < capacity; i++) v[i] = Math.random();
+  geo.setAttribute('aFade', new THREE.InstancedBufferAttribute(new Float32Array(capacity).fill(1), 1));
   return geo;
+}
+
+/**
+ * A number in [0, 1) that depends only on where a brick is, so every
+ * machine in a co-op room lays — and breaks — exactly the same wall.
+ */
+function luckAt(item, face, r, u) {
+  let h = Math.imul(Math.round(item.x * 10) | 0, 73856093) ^
+    Math.imul(Math.round(item.z * 10) | 0, 19349663) ^
+    Math.imul(face + 1, 83492791) ^ Math.imul(r + 7, 2654435761) ^
+    Math.imul(Math.round(u * 100) | 0, 40503);
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 export class Masonry {
@@ -353,7 +377,7 @@ export class Masonry {
     for (let r = 0; r < st.rows; r++) {
       const row = st.byRow[r];
       const add = (a, l) => {
-        const b = { u: a + l / 2, len: l, alive: true, idx: -1, luck: Math.random() };
+        const b = { u: a + l / 2, len: l, alive: true, idx: -1, luck: luckAt(item, wall.face, r, a + l / 2) };
         b.idx = this._alloc(L);
         varA.array[b.idx] = Math.random();
         if (uvA) {
@@ -482,12 +506,26 @@ export class Masonry {
       // straight in front of the bumper they leave at most of the car's
       // speed; off to the side, or dropping out of the wall above, barely
       const push = f.hit > 0 ? speed * (0.25 + 0.6 * f.hit) * (0.6 + Math.random() * 0.5) : 0;
+      // What the car threw stays a few seconds and then slowly dissolves;
+      // of what dropped out of the wall above, some is gone before it lands
+      // and the rest is left lying as a heap.
+      let fadeAt;
+      let fadeFor;
+      if (f.hit > 0) {
+        fadeAt = 2.5 + Math.random() * 3.5;
+        fadeFor = 2.2 + Math.random() * 1.6;
+      } else if (Math.random() < 0.45) {
+        fadeAt = 0.1 + Math.random() * 0.45;
+        fadeFor = 0.5 + Math.random() * 0.6;
+      }
       rubble.spawn({
         x: this._p.x, y: this._p.y, z: this._p.z,
         hx: b.len / 2, hy: st.rowH / 2, hz: THICK / 2,
         yaw,
         colour: L.plaster,
         mass: 4.2 * (b.len / BRICK),
+        fadeAt,
+        fadeFor,
         restitution: 0.12,
         friction: 0.82,
         vx: fx * push + (Math.random() - 0.5) * (0.6 + f.hit * 3),

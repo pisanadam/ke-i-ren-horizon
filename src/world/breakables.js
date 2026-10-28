@@ -47,6 +47,23 @@ export class Breakables {
     return item;
   }
 
+  /**
+   * The thing of this kind standing at a spot, gone or not. Co-op hits name
+   * what they broke by where it stands: every machine builds the same city
+   * in the same places, but how many lamp posts or blocks come before it in
+   * the list depends on each player's graphics profile.
+   */
+  at(kind, x, z) {
+    let best = null;
+    let bd = 1.5;
+    for (const it of this.near(x, z, 1.5, [], true)) {
+      if (it.kind !== kind) continue;
+      const d = Math.hypot(it.x - x, it.z - z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best;
+  }
+
   /** Everything standing within `r` of a point. */
   near(x, z, r, out = [], all = false) {
     out.length = 0;
@@ -104,10 +121,11 @@ export class Breakables {
    * wall where the bumper met it, and the car stops all the same.
    * @returns {boolean} whether anything came off
    */
-  chip(item, blow) {
+  chip(item, blow, force = false) {
     if (!this.masonry || !item?.walls) return false;
     const now = performance.now();
-    if (item._chipAt && now - item._chipAt < 450) return false;
+    // a knock relayed from another player is applied whatever the timing
+    if (!force && item._chipAt && now - item._chipAt < 450) return false;
     item._chipAt = now;
     const { face, t } = this._locate(item, blow);
     const wall = item.walls.find((w) => w.face === face);

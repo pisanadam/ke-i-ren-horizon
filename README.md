@@ -61,6 +61,18 @@ de konum düzeltmesi, hız kaybı ve araçlarda çarpışma darbesi oluşturur. 
 oyuncular adlarıyla tam ekran haritada, yönleriyle mini haritada görünür; mini
 harita menzilinin dışındalarsa işaretleri doğru yönde çembere sabitlenir.
 
+**Yıkım herkeste aynı.** Bir oyuncunun kırdığı her şey (bina duvarındaki
+delikler, sökülen tuğlalar, devrilen direk, ağaç ve park etmiş arabalar) odadaki
+herkesin ekranında da kırılır. Gönderilen tek şey kısa bir olaydır: ne kırıldı,
+nerede durduğu, darbe noktası ve hızı. Her makine aynı darbeyi kendi şehrine
+uygular. Tuğlaların "şansı" rastgele değil konumlarından türetildiği için delik
+herkeste tuğlası tuğlasına aynı açılır; oyuncular farklı grafik profilinde olsa
+bile. Uzaktaki bir oyuncunun çarpması sana yalnızca toz olarak yansır, yakınsa
+sesi ve sarsıntısı mesafeyle azalarak duyulur. Odaya sonradan katılan oyuncuya
+o ana kadar açılmış delikler de gönderilir: aktarıcı gördüğü her şeyi, diğerleri
+kendi açtıklarını yollar. Tek başına sürerken açtığın delikler de buna dahildir.
+Her olayın sahibi ve sıra numarası vardır, hiçbir olay iki kez uygulanmaz.
+
 ## Özel odalar (eski co-op altyapısı)
 
 Duraklat ekranındaki **CO-OP** düğmesi, 6 haneli bir oda kodu ve varsan
@@ -311,7 +323,11 @@ ya da komşuları onu en fazla bir tuğla boyu boşluğa taşıyabilir. Bu yüzd
 deliğin üstü kendiliğinden kademeli bir kemer biçiminde çöker, kenarda kalan
 tuğlalar da birkaç santim kayarak sıvada kılcal çatlaklar açar. Düşen her
 parçanın bir yüzü sıva, kalanı tuğladır. Parçalar kendi rijit gövde havuzlarında
-yere çarpar, devrilir ve yığın oluşturur. O duvar parçasına asılı denizlik ve
+yere çarpar ve devrilir. Aracın fırlattığı tuğlalar 2,5–6 saniye yerde kalır,
+sonra 2–4 saniye içinde ekranda eriyerek yavaşça kaybolur. Duvarın üstünden
+çöken tuğlaların yaklaşık yarısı daha düşerken erir; kalanlar delik önünde yığın
+olarak kalır. Erime saydamlık yerine ekran uzayında sabit bir dither ile
+yapılır, bu yüzden sıralama ya da derinlik sorunu çıkarmaz. O duvar parçasına asılı denizlik ve
 söveler de modelden kaldırılır, yani boşlukta asılı kalmaz. 79 km/s'nin
 altındaki darbeler duvarı delmez ama çarptığın yerden birkaç tuğla koparır
 (32 km/s üstü). Araba genişliğindeki açıklıktan binanın içine girilir; deliğin

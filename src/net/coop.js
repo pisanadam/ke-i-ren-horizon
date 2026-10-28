@@ -222,6 +222,13 @@ export class Coop {
     /** Called when a live guest loses the room host. */
     this.onDisconnect = () => {};
     this.isHost = false;
+    /** What this player has broken, and what it has been told was broken. */
+    this.hits = [];
+    this._applied = new Set();
+    this._hitSeq = 0;
+    // Who made a hit, stable across rooms: a hole made driving alone is
+    // still ours to hand over when somebody joins later.
+    this.uid = Math.random().toString(36).slice(2, 10);
   }
 
   get count() { return this.peers.size + (this.active ? 1 : 0); }
@@ -331,7 +338,17 @@ export class Coop {
 
   _handle(msg) {
     const now = performance.now() / 1000;
-    if (msg.t === 'joined') { this._add(msg.id, msg.name); return; }
+    if (msg.t === 'joined') {
+      const fresh = !this.peers.has(msg.id);
+      this._add(msg.id, msg.name);
+      if (fresh) this._sendHistory();
+      return;
+    }
+    if (msg.t === 'hit') { this._applyHit(msg.e); return; }
+    if (msg.t === 'hits') {
+      if (Array.isArray(msg.e)) for (const ev of msg.e) this._applyHit(ev);
+      return;
+    }
     if (msg.t === 'left') {
       this.peers.get(msg.id)?.dispose();
       this.peers.delete(msg.id);
@@ -355,6 +372,63 @@ export class Coop {
     }
     if (msg.t === 'rfin') {
       this.game.onRaceFinish?.(msg.race, msg.time, this.peers.get(msg.id)?.name || 'Bir oyuncu');
+    }
+  }
+
+  /**
+   * Tells the room something was broken. Lamp posts and parked cars too, but
+   * mostly walls: whoever drives through a building leaves a hole in it on
+   * every screen in the room.
+   *
+   * Every hit is kept, so someone arriving later is sent the city as it is
+   * now rather than as it was built. Each one carries who made it and a
+   * running number, and nothing is applied twice — the history can safely
+   * reach a player more than once.
+   */
+  sendHit(item, blow, chip) {
+    const ev = {
+      k: item.kind,
+      x: +item.x.toFixed(2), z: +item.z.toFixed(2),
+      // Where and how hard, unrounded: the hole is cut on a grid of wall
+      // columns, and a contact point rounded across a column boundary would
+      // open the hole one column over on everybody else's screen.
+      bx: blow.x, bz: blow.z, sp: blow.speed,
+      vx: +blow.vx.toFixed(2), vz: +blow.vz.toFixed(2),
+      c: chip ? 1 : 0,
+      o: this.uid,
+      n: ++this._hitSeq
+    };
+    this._remember(ev);
+    if (this.active) this.tp?.send({ t: 'hit', e: ev });
+  }
+
+  _remember(ev) {
+    const key = `${ev.o}:${ev.n}`;
+    if (this._applied.has(key)) return false;
+    this._applied.add(key);
+    this.hits.push(ev);
+    // a very long session keeps the latest; the oldest holes are the ones
+    // a newcomer is least likely to drive past
+    if (this.hits.length > 600) this.hits.shift();
+    return true;
+  }
+
+  _applyHit(ev) {
+    if (!ev || typeof ev.k !== 'string') return;
+    if (!this._remember(ev)) return;
+    this.game.applyRemoteHit?.(ev);
+  }
+
+  /**
+   * A newcomer gets the room's history: the host sends everything it has
+   * seen, everybody else what they did themselves (the host may have joined
+   * after them). In small batches, so no single message gets large.
+   */
+  _sendHistory() {
+    if (!this.active || !this.tp) return;
+    const list = this.isHost || this.tp.isHost ? this.hits : this.hits.filter((e) => e.o === this.uid);
+    for (let i = 0; i < list.length; i += 25) {
+      this.tp.send({ t: 'hits', e: list.slice(i, i + 25) });
     }
   }
 

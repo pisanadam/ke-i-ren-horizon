@@ -59,6 +59,11 @@ class Body {
     this.asleep = false;
     this.still = 0;
     this.life = 0;
+    /** When, in seconds of life, it starts dissolving, and how long that takes. */
+    this.fadeAt = Infinity;
+    this.fadeFor = 1;
+    /** A per-piece random number, for tint. */
+    this.tint = 0.5;
   }
 
   /** Box inertia from the half extents. */
@@ -193,6 +198,9 @@ export class RigidWorld {
     b.asleep = false;
     b.still = 0;
     b.life = 0;
+    b.fadeAt = o.fadeAt ?? Infinity;
+    b.fadeFor = Math.max(0.05, o.fadeFor ?? 1);
+    b.tint = Math.random();
     this._dirty = true;
     return b;
   }
@@ -209,11 +217,14 @@ export class RigidWorld {
     for (const b of this.bodies) {
       if (!b.alive) continue;
       b.life += dt;
-      if (b.life > this.life || (focus && Math.hypot(b.pos.x - focus.x, b.pos.z - focus.z) > 420)) {
+      if (b.life > this.life || b.life > b.fadeAt + b.fadeFor ||
+        (focus && Math.hypot(b.pos.x - focus.x, b.pos.z - focus.z) > 420)) {
         b.alive = false;
         this._dirty = true;
         continue;
       }
+      // a dissolving piece changes every frame, even lying still
+      if (b.life > b.fadeAt) this._dirty = true;
       if (b.asleep) continue;
       this._integrate(b, step);
       this._dirty = true;
@@ -391,16 +402,26 @@ export class RigidWorld {
       const n = counts[shape]++;
       d.position.copy(b.pos);
       d.quaternion.copy(b.quat);
-      if (shape === 'wheel') d.scale.copy(b.half);
-      else d.scale.set(b.half.x * 2, b.half.y * 2, b.half.z * 2);
+      // 1 while whole, down to 0 as it dissolves
+      const fade = b.life > b.fadeAt ? Math.max(0, 1 - (b.life - b.fadeAt) / b.fadeFor) : 1;
+      const k = 0.55 + 0.45 * fade;
+      if (shape === 'wheel') d.scale.copy(b.half).multiplyScalar(k);
+      else d.scale.set(b.half.x * 2 * k, b.half.y * 2 * k, b.half.z * 2 * k);
       d.updateMatrix();
       mesh.setMatrixAt(n, d.matrix);
       mesh.setColorAt(n, b.colour);
+      // meshes that can draw it (the brick rubble) dissolve; the rest shrink
+      const fa = mesh.geometry.attributes.aFade;
+      if (fa) fa.array[n] = fade;
+      const va = mesh.geometry.attributes.aVar;
+      if (va) va.array[n] = b.tint;
     }
     for (const [shape, mesh] of Object.entries(this.renderMeshes)) {
       mesh.count = counts[shape];
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (mesh.geometry.attributes.aFade) mesh.geometry.attributes.aFade.needsUpdate = true;
+      if (mesh.geometry.attributes.aVar) mesh.geometry.attributes.aVar.needsUpdate = true;
     }
   }
 

@@ -286,10 +286,17 @@ class Game {
       }
     };
     this.breakables.onBreak = (item, blow) => {
-      const hard = Math.min(1, (blow?.speed ?? 8) / 28);
+      let hard = Math.min(1, (blow?.speed ?? 8) / 28);
+      // Another player's crash: as loud and as shaky as it is close to you.
+      // Across town it is only the dust.
+      if (blow?.remote) {
+        const me = this.state === 'foot' ? this.onFoot?.position : this.vehicle?.position;
+        const d = me ? Math.hypot((blow.x ?? item.x) - me.x, (blow.z ?? item.z) - me.z) : 999;
+        hard *= Math.max(0, 1 - d / 90);
+      }
       // one crash a frame however many things went down at once, or ploughing
       // into a row of parked cars fires a dozen overlapping sounds
-      this._crash = Math.max(this._crash ?? 0, hard);
+      if (hard > 0.02) this._crash = Math.max(this._crash ?? 0, hard);
       this._crashKind = item.kind;
       this.rig?.addShake(Math.min(0.7, hard) * this.shakeScale);
 
@@ -453,14 +460,17 @@ class Game {
       if (speed < need) {
         // Too slow to go through a wall is not too slow to mark it: the
         // bricks the bumper met come out of the face, and the car stops.
-        if (item.kind === 'bina' && speed > CHIP_SPEED) {
-          this.breakables.chip(item, { speed, vx: dx * speed, vz: dz * speed, x: px, z: pz });
+        if (item.kind === 'bina' && speed > CHIP_SPEED &&
+          this.breakables.chip(item, { speed, vx: dx * speed, vz: dz * speed, x: px, z: pz })) {
+          this.coop?.sendHit(item, { speed, vx: dx * speed, vz: dz * speed, x: px, z: pz }, true);
         }
         return false;
       }
       if (!this.breakables.smash(item, {
         speed, vx: dx * speed, vz: dz * speed, x: px, z: pz
       })) return false;
+      // everybody else in the room sees the same thing come down
+      this.coop?.sendHit(item, { speed, vx: dx * speed, vz: dz * speed, x: px, z: pz }, false);
       this.vehicle.velocity.multiplyScalar(TOLL[item.kind] ?? 0.9);
       this.vehicle.impact = Math.max(this.vehicle.impact, Math.min(1, speed / 22));
       // It gave way, so it costs the car less than a wall would — but a
@@ -1357,6 +1367,20 @@ class Game {
   }
 
   /** Drops the car in the right-hand lane of whichever road is closest. */
+  /**
+   * Something another player in the room broke. It is found by where it
+   * stands and broken here with the same blow, so the hole comes out the
+   * same shape (the bricks are laid from their position, not from chance).
+   */
+  applyRemoteHit(ev) {
+    if (!this.breakables) return;
+    const item = this.breakables.at(ev.k, ev.x, ev.z);
+    if (!item) return;
+    const blow = { speed: ev.sp, vx: ev.vx, vz: ev.vz, x: ev.bx, z: ev.bz, remote: true };
+    if (ev.c) this.breakables.chip(item, blow, true);
+    else this.breakables.smash(item, blow);
+  }
+
   _placeOnRoad(x, z, fallbackYaw, slot = 0) {
     let near = this.network.nearestRoad(x, z);
     // The cheap lookup can land on a stub that goes nowhere — the Ostim
