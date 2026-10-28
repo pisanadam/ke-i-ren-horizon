@@ -48,7 +48,7 @@ export class Breakables {
   }
 
   /** Everything standing within `r` of a point. */
-  near(x, z, r, out = []) {
+  near(x, z, r, out = [], all = false) {
     out.length = 0;
     const x0 = Math.floor((x - r) / CELL);
     const x1 = Math.floor((x + r) / CELL);
@@ -57,7 +57,7 @@ export class Breakables {
     for (let ix = x0; ix <= x1; ix++) {
       for (let iz = z0; iz <= z1; iz++) {
         for (const it of this.cells.get(`${ix}:${iz}`) || []) {
-          if (!it.gone && Math.hypot(it.x - x, it.z - z) <= r) out.push(it);
+          if ((all || !it.gone) && Math.hypot(it.x - x, it.z - z) <= r) out.push(it);
         }
       }
     }
@@ -118,6 +118,7 @@ export class Breakables {
       rx: 0.35 + k * 0.75, ry: 0.3 + k * 0.6, yc: 0.55
     });
     if (!res || !res.removed) return false;
+    this.onWallChanged?.(item);
     this.onOpened?.(item);
     this.onBreak(item, { ...blow, speed: (blow?.speed ?? 8) * 0.5 });
     return true;
@@ -221,6 +222,8 @@ export class Breakables {
     } else if (!bricks.removed) {
       return false;
     }
+    // the sills and surrounds hung on that stretch of wall have to go
+    this.onWallChanged?.(item);
 
     // Where the hole is, in the world — the collider is told to let anything
     // through there, so the rest of the building still stops you.
@@ -335,11 +338,11 @@ export class Breakables {
       arr[i * 3 + 1] = base;
       arr[i * 3 + 2] = item.z;
     }
-    // only the touched slice goes back to the GPU
-    if (attr.addUpdateRange) {
-      attr.clearUpdateRanges?.();
-      attr.addUpdateRange(start * 3, count * 3);
-    }
+    // only the touched slices go back to the GPU. Ranges accumulate until the
+    // renderer uploads them and clears the list itself: clearing here would
+    // throw away the other cells hidden in the same frame, which is exactly
+    // what a hole made of several cells does.
+    if (attr.addUpdateRange) attr.addUpdateRange(start * 3, count * 3);
     attr.needsUpdate = true;
   }
 

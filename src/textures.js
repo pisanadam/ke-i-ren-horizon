@@ -131,6 +131,11 @@ const FACADE_PALETTES = {
 
 export const FACADE_KEYS = Object.keys(FACADE_PALETTES);
 
+/** The plain wall and trim colours of a facade, for things built to match it. */
+export function facadePalette(key) {
+  return FACADE_PALETTES[key] || FACADE_PALETTES.sand;
+}
+
 /**
  * Builds a tiling apartment facade: one texture cell == one floor by one window bay.
  * Returns { map, emissiveMap } so windows can light up after dark.

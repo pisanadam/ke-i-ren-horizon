@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import { QUALITY } from '../quality.js';
+import { facadePalette } from '../textures.js';
 
 /**
- * Brick walls, where a car meets one.
+ * What an apartment wall is made of, where a car meets one.
  *
- * A city of twelve thousand apartment blocks cannot be drawn brick by brick:
- * the reachable band alone would be some forty million of them. So a wall is
- * a facade until it is struck, and only then does the stretch around the
- * impact turn into what an Ankara apartment wall actually is under the
- * plaster — courses of red hollow brick laid in running bond. The facade
- * cells behind it are collapsed out of their merged mesh and an exact brick
- * replica takes their place, so the swap cannot be seen.
+ * A city of twelve thousand apartment blocks cannot be drawn brick by brick,
+ * so a wall is a facade until it is struck. Then the stretch around the
+ * impact is quietly rebuilt as what an Ankara apartment wall really is: red
+ * hollow brick in running bond behind a coat of plaster. The rebuild is meant
+ * to be invisible — every brick carries the exact piece of the facade it
+ * replaces on its outer face (the same texture, the same windows, lit the
+ * same at night), laid flush with no joints showing. From the street the
+ * building looks untouched. Only where bricks are knocked out does the inside
+ * of the wall show: the plaster skin, the brick behind it, the mortar lines.
  *
  * From then on the wall behaves like masonry:
  *
@@ -20,24 +23,102 @@ import { QUALITY } from '../quality.js';
  *  - every course above is then checked for support. A brick can sit on the
  *    one below it, or be held by its neighbours for about one brick's length
  *    out over a gap — no further. That is all it takes for the wall above a
- *    hole to come down in a stepped, corbelled arch, the shape a real brick
- *    wall leaves when its middle is punched out;
+ *    hole to come down in a stepped, corbelled arch;
  *  - the bricks round the edge that did stay are knocked a few centimetres
- *    out of true, which is what reads as a cracked wall rather than a cut one.
+ *    out of true, which opens hairline cracks in the plaster around the hole.
  *
- * Everything that comes loose goes to its own rigid-body pool, so a wall
- * coming down cannot evict the wreck of a car from the shared one.
+ * Everything that comes loose goes to its own rigid-body pool, still plaster
+ * on one face and brick on the rest.
  */
 
 /** Course height and nominal brick length, mortar included. */
 const COURSE = 0.21;
 const BRICK = 0.42;
-/** Wall thickness: one hollow brick laid flat. */
+/** Wall thickness: one hollow brick laid flat, plaster included. */
 const THICK = 0.24;
-/** Mortar joint, left as a gap. */
-const JOINT = 0.022;
+/** Plaster skin on the outside, as a share of the thickness. */
+const PLASTER = 0.025 / THICK;
 
-const BRICK_COLOURS = [0xb4532f, 0xa8472a, 0xbf5f37, 0x9e4428, 0xc46a40, 0xad5032, 0x93412a];
+/**
+ * Turns a standard material into one that draws a brick: the outer face
+ * (+Z of the unit box) is the wall's skin, everything else is brick in
+ * mortar with the plaster layer showing along its outer edge.
+ *
+ * @param {THREE.Material} material
+ * @param {{facade:boolean}} opts `facade` true when the outer face samples
+ *   the facade texture through a per-instance UV rectangle; false when it
+ *   is a plain plaster colour given per instance (the rubble)
+ */
+export function brickMaterial(material, { facade }) {
+  material.onBeforeCompile = (sh) => {
+    sh.uniforms.uPlaster = material.userData.plaster;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float aVar;
+${facade ? 'attribute vec4 aUvRect;' : ''}
+varying vec3 vBrick;
+varying float vBrickVar;`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+vBrick = position;
+vBrickVar = aVar;
+${facade ? `vec2 brickUv = aUvRect.xy + (position.xy + 0.5) * aUvRect.zw;
+#ifdef USE_MAP
+vMapUv = (mapTransform * vec3(brickUv, 1.0)).xy;
+#endif
+#ifdef USE_EMISSIVEMAP
+vEmissiveMapUv = (emissiveMapTransform * vec3(brickUv, 1.0)).xy;
+#endif` : ''}`);
+    const anchor = facade ? '#include <map_fragment>' : '#include <color_fragment>';
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform vec3 uPlaster;
+varying vec3 vBrick;
+varying float vBrickVar;`)
+      .replace(anchor, `${anchor}
+float brickOuter = step(0.4995, vBrick.z);
+{
+  vec3 plaster = ${facade ? 'uPlaster' : 'diffuseColor.rgb'};
+  vec3 clay = mix(vec3(0.30, 0.065, 0.025), vec3(0.56, 0.15, 0.06), vBrickVar);
+  // hollow-brick webs: the end faces of a Turkish brick are a grid of holes
+  float endFace = step(0.4995, abs(vBrick.x));
+  vec2 web = fract(vec2(vBrick.z * 4.0 + 0.5, vBrick.y * 3.0 + 0.5));
+  float hole = endFace * step(0.18, web.x) * step(web.x, 0.82) * step(0.2, web.y) * step(web.y, 0.8);
+  clay *= 1.0 - hole * 0.72;
+  // mortar round the edge of every face that is not the skin
+  float joint = max(step(0.47, abs(vBrick.x)), step(0.44, abs(vBrick.y)));
+  vec3 side = mix(clay, vec3(0.34, 0.32, 0.28), joint * (1.0 - endFace));
+  side = mix(side, plaster, step(0.5 - ${PLASTER.toFixed(4)}, vBrick.z));
+  // the room side is plastered too, lighter and plain
+  side = mix(side, vec3(0.58, 0.55, 0.5), step(vBrick.z, -0.4995));
+  diffuseColor.rgb = mix(side, diffuseColor.rgb, brickOuter);
+}`);
+    if (facade) {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= brickOuter;');
+    }
+  };
+  material.userData.plaster = { value: new THREE.Color(0xd8d0c0) };
+  material.customProgramCacheKey = () => (facade ? 'brick-facade' : 'brick-rubble');
+  return material;
+}
+
+/** A unit box whose instances carry a brick tint and a facade UV patch. */
+function brickGeometry(capacity, facade) {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  geo.setAttribute('aVar', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1));
+  if (facade) {
+    geo.setAttribute('aUvRect', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4));
+  }
+  return geo;
+}
+
+/** The geometry the rubble pool draws its bricks with: random tint per slot. */
+export function rubbleGeometry(capacity) {
+  const geo = brickGeometry(capacity, false);
+  const v = geo.attributes.aVar.array;
+  for (let i = 0; i < capacity; i++) v[i] = Math.random();
+  return geo;
+}
 
 export class Masonry {
   /**
@@ -47,25 +128,18 @@ export class Masonry {
   constructor(scene, rubble) {
     this.scene = scene;
     this.rubble = rubble;
-    this.capacity = QUALITY.tier === 'mobile' ? 7000 : 26000;
+    /** Bricks standing in walls, across every facade. */
+    this.capacity = QUALITY.masonry ?? 12000;
+    this.total = 0;
     /** Set by Breakables: takes one facade cell out of its merged mesh. */
     this.hideCell = null;
+    /** facade key -> the facade's own material, set by the game */
+    this.facades = {};
+    /** where clones go so they light up at night with the rest */
+    this.nightList = null;
+    /** One instanced layer per facade, made the first time it is needed. */
+    this.layers = new Map();
 
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    this.material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.94, metalness: 0 });
-    this.mesh = new THREE.InstancedMesh(geo, this.material, this.capacity);
-    this.mesh.name = 'masonry';
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    // the bricks are scattered over however many buildings have been hit,
-    // so one bounding sphere for all of them would be the whole city anyway
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(this.mesh);
-
-    this.used = 0;
-    this.free = [];
     this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
@@ -75,9 +149,44 @@ export class Masonry {
     this._c = new THREE.Color();
   }
 
+  /**
+   * @param {Record<string, THREE.MeshStandardMaterial>} materials facade
+   *   materials by bucket key
+   * @param {THREE.Material[]} [nightList] the list whose emissive is driven
+   *   after dark
+   */
+  setFacades(materials, nightList) {
+    this.facades = materials;
+    this.nightList = nightList ?? null;
+  }
+
   /** Room left for new bricks. */
   get room() {
-    return this.capacity - this.used + this.free.length;
+    return this.capacity - this.total;
+  }
+
+  _layer(bucket) {
+    let L = this.layers.get(bucket);
+    if (L) return L;
+    const src = this.facades[bucket];
+    const cap = Math.max(800, Math.ceil(this.capacity * 0.6));
+    const mat = brickMaterial(src ? src.clone() : new THREE.MeshStandardMaterial({ color: 0xd8d0c0 }), { facade: !!src?.map });
+    mat.side = THREE.FrontSide;
+    const pal = bucket === 'shop' ? { wall: '#8d8a84' } : facadePalette(bucket);
+    mat.userData.plaster.value.set(pal.wall);
+    if (src && this.nightList) this.nightList.push(mat);
+    const mesh = new THREE.InstancedMesh(brickGeometry(cap, !!src?.map), mat, cap);
+    mesh.name = `masonry-${bucket}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    // scattered over however many buildings have been hit
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.scene.add(mesh);
+    L = { mesh, cap, used: 0, free: [], plaster: new THREE.Color(pal.wall).getHex(), facade: !!src?.map };
+    this.layers.set(bucket, L);
+    return L;
   }
 
   /**
@@ -94,15 +203,17 @@ export class Masonry {
    *   fall back to the plain hole
    */
   strike(item, wall, u, blow, shape) {
+    if (this.capacity <= 0) return null;
     const st = this._state(item, wall);
+    const L = this._layer(wall.bucket ?? 'shop');
     const reach = shape.rx + 1.3;
     const c0 = Math.max(0, Math.floor((u - reach) / st.cw));
     const c1 = Math.min(st.cols - 1, Math.floor((u + reach) / st.cw));
 
     let need = 0;
     for (let c = c0; c <= c1; c++) if (!st.colOn[c]) need += st.perCol;
-    if (need > this.room) return null;
-    for (let c = c0; c <= c1; c++) if (!st.colOn[c]) this._raise(item, wall, st, c);
+    if (need > this.room || need > L.cap - L.used + L.free.length) return null;
+    for (let c = c0; c <= c1; c++) if (!st.colOn[c]) this._raise(item, wall, st, L, c);
 
     const falling = [];
     const minU = c0 * st.cw;
@@ -176,7 +287,7 @@ export class Masonry {
       }
     }
 
-    for (const f of falling) this._release(f.b);
+    for (const f of falling) this._release(L, f.b);
 
     // ---- the ones that stayed, knocked out of true ---------------------
     for (let r = 0; r < st.rows; r++) {
@@ -188,15 +299,20 @@ export class Masonry {
         const d = dx * dx + dy * dy;
         if (d >= 1) continue;
         const k = (1 - d) * (0.5 + b.luck);
-        b.shove = (b.shove || 0) + k * 0.035;
-        b.twist = (b.twist || 0) + (b.luck - 0.5) * k * 0.16;
-        this._place(item, wall, st, b, r);
+        b.shove = (b.shove || 0) + k * 0.03;
+        b.twist = (b.twist || 0) + (b.luck - 0.5) * k * 0.12;
+        this._place(item, wall, st, L, b, r);
       }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
+    L.mesh.instanceMatrix.needsUpdate = true;
 
-    this._throw(item, wall, st, falling, blow);
+    this._throw(item, wall, st, L, falling, blow);
     return { removed: falling.length, from: c0, to: c1 };
+  }
+
+  /** True when a column of a wall has been rebuilt in brick. */
+  isBrick(wall, c) {
+    return !!wall.masonry?.colOn[c];
   }
 
   /** The brick layout of one wall, made the first time it is struck. */
@@ -219,7 +335,7 @@ export class Masonry {
   }
 
   /** Lays one column of the wall in brick and takes the facade there away. */
-  _raise(item, wall, st, c) {
+  _raise(item, wall, st, L, c) {
     st.colOn[c] = 1;
     for (let fr = 0; fr < wall.rows; fr++) {
       const n = fr * wall.cols + c;
@@ -229,19 +345,27 @@ export class Masonry {
       this.hideCell?.(wall, n, item);
     }
 
+    const geo = L.mesh.geometry;
+    const varA = geo.attributes.aVar;
+    const uvA = geo.attributes.aUvRect;
     const len = st.cw / st.perBrick;
     const left = c * st.cw;
     for (let r = 0; r < st.rows; r++) {
       const row = st.byRow[r];
       const add = (a, l) => {
-        const b = {
-          u: a + l / 2, len: l, alive: true, idx: -1,
-          luck: Math.random(), colour: BRICK_COLOURS[(Math.random() * BRICK_COLOURS.length) | 0]
-        };
-        b.idx = this._alloc();
-        this._place(item, wall, st, b, r);
-        this._c.setHex(b.colour).multiplyScalar(0.9 + b.luck * 0.18);
-        this.mesh.setColorAt(b.idx, this._c);
+        const b = { u: a + l / 2, len: l, alive: true, idx: -1, luck: Math.random() };
+        b.idx = this._alloc(L);
+        varA.array[b.idx] = Math.random();
+        if (uvA) {
+          // the patch of facade this brick stands in for
+          const texW = wall.texW ?? 13.6;
+          const texH = wall.texH ?? 12;
+          uvA.array[b.idx * 4] = a / texW;
+          uvA.array[b.idx * 4 + 1] = (wall.v0 ?? 0) + (r * st.rowH) / texH;
+          uvA.array[b.idx * 4 + 2] = l / texW;
+          uvA.array[b.idx * 4 + 3] = st.rowH / texH;
+        }
+        this._place(item, wall, st, L, b, r);
         row.push(b);
       };
       if (r % 2 === 0) {
@@ -254,8 +378,9 @@ export class Masonry {
       }
       row.sort((a, b) => a.u - b.u);
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    L.mesh.instanceMatrix.needsUpdate = true;
+    varA.needsUpdate = true;
+    if (uvA) uvA.needsUpdate = true;
   }
 
   /** True where course `r` has something solid at `u`. */
@@ -290,33 +415,45 @@ export class Masonry {
     );
   }
 
-  _place(item, wall, st, b, r) {
-    const y = (r + 0.5) * st.rowH;
-    // proud of the facade by a hair, pushed further out where it was shaken
-    this._world(item, wall, b.u, y, THICK / 2 - 0.012 - (b.shove || 0), this._p);
-    this._e.set((b.luck - 0.5) * (b.shove || 0) * 1.5, (item.rot ?? 0) + (wall.face < 2 ? 0 : Math.PI / 2) + (b.twist || 0), 0);
-    this._q.setFromEuler(this._e);
-    this._s.set(Math.max(0.02, b.len - JOINT), st.rowH - JOINT, THICK);
-    this._m.compose(this._p, this._q, this._s);
-    this.mesh.setMatrixAt(b.idx, this._m);
+  /**
+   * The yaw that turns a brick's +Z (its skin) outwards and its +X along the
+   * way the facade texture runs on this face.
+   */
+  _yaw(item, wall) {
+    return (item.rot ?? 0) + [0, Math.PI, Math.PI / 2, -Math.PI / 2][wall.face];
   }
 
-  _alloc() {
-    if (this.free.length) return this.free.pop();
-    const i = this.used++;
-    this.mesh.count = this.used;
+  _place(item, wall, st, L, b, r) {
+    const y = (r + 0.5) * st.rowH;
+    // flush with the facade, pushed out where it was shaken
+    this._world(item, wall, b.u, y, THICK / 2 - 0.004 - (b.shove || 0), this._p);
+    this._e.set((b.luck - 0.5) * (b.shove || 0) * 1.5, this._yaw(item, wall) + (b.twist || 0), 0);
+    this._q.setFromEuler(this._e);
+    // whole bricks overlap by a hair: the skin must read as one unbroken wall
+    // until it breaks, with no hairline of the room behind showing through
+    this._s.set(Math.max(0.02, b.len + 0.003), st.rowH + 0.003, THICK);
+    this._m.compose(this._p, this._q, this._s);
+    L.mesh.setMatrixAt(b.idx, this._m);
+  }
+
+  _alloc(L) {
+    this.total++;
+    if (L.free.length) return L.free.pop();
+    const i = L.used++;
+    L.mesh.count = L.used;
     return i;
   }
 
-  _release(b) {
+  _release(L, b) {
     if (b.idx < 0) return;
-    this.mesh.setMatrixAt(b.idx, this._zero);
-    this.free.push(b.idx);
+    L.mesh.setMatrixAt(b.idx, this._zero);
+    L.free.push(b.idx);
     b.idx = -1;
+    this.total--;
   }
 
   /** Hands the loose bricks to the rubble pool. */
-  _throw(item, wall, st, falling, blow) {
+  _throw(item, wall, st, L, falling, blow) {
     const rubble = this.rubble;
     if (!rubble) return;
     const speed = blow?.speed ?? 8;
@@ -338,7 +475,7 @@ export class Masonry {
       list.length = budget;
     }
 
-    const yaw = (item.rot ?? 0) + (wall.face < 2 ? 0 : Math.PI / 2);
+    const yaw = this._yaw(item, wall);
     for (const f of list) {
       const b = f.b;
       this._world(item, wall, b.u, f.y, THICK / 2, this._p);
@@ -347,9 +484,9 @@ export class Masonry {
       const push = f.hit > 0 ? speed * (0.25 + 0.6 * f.hit) * (0.6 + Math.random() * 0.5) : 0;
       rubble.spawn({
         x: this._p.x, y: this._p.y, z: this._p.z,
-        hx: b.len / 2 - JOINT / 2, hy: st.rowH / 2 - JOINT / 2, hz: THICK / 2,
+        hx: b.len / 2, hy: st.rowH / 2, hz: THICK / 2,
         yaw,
-        colour: b.colour,
+        colour: L.plaster,
         mass: 4.2 * (b.len / BRICK),
         restitution: 0.12,
         friction: 0.82,

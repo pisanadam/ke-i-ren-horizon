@@ -162,9 +162,10 @@ gelir:
 - **Sağ üst** — el freni, klakson, kamera, harita ve duraklat düğmeleri.
 
 Yatay tutuş önerilir; oyun başlarken tam ekrana geçmeyi ve ekranı yatay
-kilitlemeyi dener. Telefonlarda harita, bina ve trafik yoğunluğu ile gölge
-kalitesi otomatik olarak düşürülür. Kademeyi elle seçmek istersen adresin
-sonuna `?kalite=dusuk` veya `?kalite=yuksek` ekleyebilirsin.
+kilitlemeyi dener. Telefonlar **Orta**, bilgisayarlar **Yüksek** grafik
+profiliyle açılır. Profili Ayarlar → Görüntü → **Grafik profili** satırından
+değiştirebilir ya da adresin sonuna `?kalite=dusuk`, `?kalite=orta`,
+`?kalite=yuksek`, `?kalite=cokyuksek` veya `?kalite=ultra` ekleyebilirsin.
 
 ### Harita ve hedef işaretleme
 
@@ -274,25 +275,44 @@ harekete geçer ve bütün vücut çarpan aracın gerçek hızına göre dönere
 Yere çarpınca sekme ve sürtünmeyle durur, bir süre sonra başka bir kaldırımda
 yeniden dolaşıma katılır.
 
-**Apartmanlar.** Bloklar düz kutu değildir: sokağa bakan cephede her katta
-dışarı taşan beton döşemeli, dolu korkuluklu ve küpeşteli 3B balkonlar vardır
-(uzun cephelerde köşelerde iki sıra, kısa cephelerde ortada bir sıra). Balkonlar
-karelere bölünmüş instanced katmanda çizilir, uzaktakiler hiç gönderilmez.
+**Apartmanlar.** Uzaktaki bloklar, üzerine pencere ızgarası boyanmış kutulardır;
+şehrin silueti bu şekilde ucuza çizilir. Etrafındaki bloklar ise gerçek 3B
+modeldir ve boyalı cepheyle birebir hizalanır (3,4 m'lik her bölmede bir
+pencere, 3 m'lik her katta bir sıra). Her pencerenin altında gölge düşüren
+mermer bir denizlik, çevresinde sıva söve ve üstünde bir başlık vardır. Katları
+binanın etrafını dolaşan kat silmeleri ayırır, köşelerde pilastırlar, çatı
+kenarında bir korniş bulunur. Dükkânsız blokların sokak cephesinde kapı, saçak
+ve iki basamaklı bir giriş vardır. Bazı pencerelere de klima ünitesi asılıdır.
+Sokağa bakan cephede her katta beton döşemeli, dolu korkuluklu 3B balkonlar
+vardır. Yakın ayrıntı tek bir `BatchedMesh` içinde durur: bütün mahalle tek çizim
+çağrısıdır ama görüş alanı dışındaki bloklar yine tek tek ayıklanır. Uzaklaştığın
+bloklar yuvalarını yaklaştığın bloklara bırakır. Her karede, kare süresinden en
+fazla 1,6 ms ayrılarak en yakındakiler önce kurulur. Kurucu her blok için
+önceden ayrılmış tek tip dizilere doğrudan yazar ve köşe başına hiç bellek
+ayırmaz.
 
 **Yıkım.** Şehirdeki hiçbir şey kendiliğinden yıkılmaz; kırılması için senin
 çarpman gerekir ve her şeyin bir eşiği vardır: lamba direği 18 km/s, ağaç
 25 km/s, park etmiş araba 29 km/s, bina duvarı 79 km/s. Eşiği geçince nesne
 birleştirilmiş meshten silinir, yerini rijit gövde çözücüsüne bırakır ve
 gerçekten devrilir, savrulur, yuvarlanır. Duvarlar bütün hâlinde yıkılmaz,
-**tuğla tuğla** dağılır: bir duvara çarptığın anda o bölgedeki cephe, Ankara
-apartmanlarının sıvasının altındaki gibi şaşırtmalı örülmüş kırmızı tuğla
-sıralarına dönüşür (≈42 × 21 cm, 24 cm kalınlık). Tamponun ulaştığı tuğlalar
-pürüzlü bir kenarla yerinden sökülür ve aracın hızıyla binanın içine fırlar;
+**tuğla tuğla** dağılır. Duvara çarptığında görünüşte hiçbir şey değişmez: o
+bölge, Ankara apartmanlarının sıvasının altındaki gibi şaşırtmalı örülmüş kırmızı
+tuğla sıralarıyla (≈42 × 21 cm, 24 cm kalınlık) sessizce yeniden kurulur. Her
+tuğlanın dış yüzü, yerini aldığı cephe parçasını taşır: aynı doku, aynı
+pencereler ve gece aynı ışıklar. Tuğlalar derzsiz ve cepheyle aynı hizada
+dizildiği için bina dışarıdan apartman olarak kalır. Tuğla yalnızca kopan
+yerlerde görünür: kırık kenarda 2,5 cm'lik sıva tabakası, arkasında harç
+çizgileri arasında tuğla ve uçlarında delikli tuğlanın gözleri. İç yüz açık
+renkli iç sıvadır. Tamponun ulaştığı tuğlalar pürüzlü bir kenarla yerinden
+sökülür ve aracın hızıyla binanın içine fırlar.
 ardından her sıra yeniden taşıyıcı arar — bir tuğla ya alttakinin üstünde durur
 ya da komşuları onu en fazla bir tuğla boyu boşluğa taşıyabilir. Bu yüzden
 deliğin üstü kendiliğinden kademeli bir kemer biçiminde çöker, kenarda kalan
-tuğlalar da birkaç santim kayıp çatlak görüntüsü verir. Düşen her tuğla kendi
-rijit gövde havuzunda yere çarpar, devrilir ve yığın oluşturur. 79 km/s'nin
+tuğlalar da birkaç santim kayarak sıvada kılcal çatlaklar açar. Düşen her
+parçanın bir yüzü sıva, kalanı tuğladır. Parçalar kendi rijit gövde havuzlarında
+yere çarpar, devrilir ve yığın oluşturur. O duvar parçasına asılı denizlik ve
+söveler de modelden kaldırılır, yani boşlukta asılı kalmaz. 79 km/s'nin
 altındaki darbeler duvarı delmez ama çarptığın yerden birkaç tuğla koparır
 (32 km/s üstü). Araba genişliğindeki açıklıktan binanın içine girilir; deliğin
 arkasına iç zemin çizilir, yüksek hızlı darbe daha geniş bir açıklık açar ve
@@ -375,7 +395,8 @@ src/
 │   ├── metro.js         viyadükler, peronlar, tarifeyle işleyen trenler
 │   ├── colliders.js     statik çarpışma ızgarası, delikler ve kabuklar
 │   ├── breakables.js    kırılan direk, ağaç, araba ve duvarlar
-│   ├── masonry.js       çarpılan duvarları tuğla tuğla örüp yıkan katman
+│   ├── masonry.js       çarpılan duvarları sıvalı tuğla olarak örüp yıkan katman
+│   ├── apartmentDetail.js yakın blokların 3B modeli (söve, denizlik, silme, giriş)
 │   ├── rigid.js         enkaz için rijit gövde çözücüsü
 │   ├── tiles.js         şehri karelere bölen çizim/eleme katmanı
 │   ├── reflections.js   araç yansımaları için ortam sondası
@@ -504,6 +525,32 @@ km/s'te on saniyede 28 yakalama, yani saniyede 17 fazladan sahne çizimi — hep
 64 pikselliğe indirilip bulanıklaştırılan bir küp için. Eşik 22 metreye çıktı,
 on saniyede 28 yakalama 7'ye indi (ölçüldü) ve görüntüde fark yok.
 
-Bütün kademe ayarları tek yerde: `src/quality.js`. Harita, bina ve trafik
-yoğunluğu, gölge çözünürlüğü, arazi çözünürlüğü ve piksel oranı buradan
-belirlenir.
+**Grafik profilleri.** Beş profil var: **Düşük, Orta, Yüksek, Çok yüksek,
+Ultra**. Her profil, oyunun kuracağı dünyanın tam tanımıdır:
+
+| | Düşük | Orta | Yüksek | Çok yüksek | Ultra |
+|---|---|---|---|---|---|
+| Bina | 3 000 | 4 200 | 10 000 | 12 000 | 14 000 |
+| Ağaç | 1 800 | 3 200 | 8 000 | 9 000 | 12 000 |
+| Trafik aracı | 26 | 40 | 80 | 92 | 120 |
+| 3B apartman ayrıntısı | yok | 110 m | 190 m | 270 m | 360 m |
+| Balkonlar | yok | var | var | var | var |
+| Gölge haritası | 1024 | 1024 | 2048 | 2048 | 4096 |
+| Tuğla (duvarda / uçuşan) | 3 500 / 90 | 7 000 / 150 | 18 000 / 360 | 26 000 / 460 | 40 000 / 700 |
+| Piksel oranı | 1 | 1,15 | 1,5 | 1,75 | 2 |
+
+Profil seçildiği anda çözünürlük ölçeği, gölge, yansıma, görüş ve sis mesafesi,
+parçacıklar ve yüz ayıklama değişir. Şehrin boyutu, yakın ayrıntı, gölge haritası
+ve tuğla sayısı yeniden yüklemede uygulanır. Ayarlarda beliren **YENİDEN YÜKLE**
+düğmesi bunu tek dokunuşla yapar. Bina ve ağaç yoğunluğu ayarları artık
+profilin şehrini gerçekten ölçekliyor; önceden kaydediliyordu ama hiçbir şey
+okumuyordu.
+
+**Optimizasyon.** Rijit gövde çözücüsü artık köşe ve temas başına vektör ya da
+matris ayırmıyor. Yüzlerce tuğla yere otururken saniyede on binlerce nesne
+çöpe gidiyordu. Hareket eden gövde yoksa enkaz matrisleri de her karede
+yeniden yüklenmiyor. Cephe hücrelerini gizleyen kod, aynı karede gizlenen
+birden fazla hücrenin güncelleme aralıklarını birbirinin üstüne yazıyordu;
+artık hepsi tek yüklemede gidiyor.
+
+Bütün profiller tek yerde: `src/quality.js`.

@@ -15,7 +15,8 @@ import { SkyEnv } from './world/skyEnv.js';
 import { Reflections, markReflective } from './world/reflections.js';
 import { RigidWorld } from './world/rigid.js';
 import { Breakables } from './world/breakables.js';
-import { Masonry } from './world/masonry.js';
+import { Masonry, brickMaterial, rubbleGeometry } from './world/masonry.js';
+import { ApartmentDetail } from './world/apartmentDetail.js';
 import { TileWorld } from './world/tiles.js';
 import { ZONES, SPAWN_POINTS, LANDMARKS, DISTRICT_GRIDS } from './world/mapData.js';
 import { findRoute, TURN_LABEL, TURN_ARROW } from './world/route.js';
@@ -256,13 +257,24 @@ class Game {
     // Walls come apart as bricks, and the bricks get a pool of their own: a
     // hole is a couple of hundred of them, and they must not push the wreck
     // of a car out of the shared one.
+    const rubbleMax = QUALITY.rubble ?? 150;
     this.brickRubble = new RigidWorld(this.ground, this.scene, {
-      max: QUALITY.tier === 'mobile' ? 150 : 460,
+      max: rubbleMax,
       life: 60,
       name: 'brick-rubble',
-      material: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 })
+      geometry: rubbleGeometry(rubbleMax),
+      // plaster on the face that was outside, brick and mortar on the rest
+      material: brickMaterial(
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 }),
+        { facade: false }
+      )
     });
-    this.breakables.setMasonry(new Masonry(this.scene, this.brickRubble));
+    const masonry = new Masonry(this.scene, this.brickRubble);
+    masonry.setFacades(buildings.bucketMaterials, buildings.nightMaterials);
+    this.breakables.setMasonry(masonry);
+    // the blocks around you, modelled: sills, surrounds, ledges, entrances
+    this.apartmentDetail = new ApartmentDetail(this.scene, this.breakables);
+    this.breakables.onWallChanged = (item) => this.apartmentDetail.invalidate(item);
     // With a wall missing you look straight through the shell, so the facades
     // stop culling their back faces the first time one is opened up.
     this.breakables.onOpened = () => {
@@ -1739,6 +1751,7 @@ class Game {
       this.effects.update(dt);
       this.rigid.update(dt, focus);
       this.brickRubble.update(dt, focus);
+      this.apartmentDetail.update(focus.x, focus.z, dt);
       this._emitTyreEffects(dt);
       this.skyEnv.update(dt * this.clockScale, onFoot ? this.onFoot.position : this.vehicle.position);
       this.reflections.update(

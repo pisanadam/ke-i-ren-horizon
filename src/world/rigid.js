@@ -140,6 +140,14 @@ export class RigidWorld {
     this._tmpB = new THREE.Vector3();
     this._tmpC = new THREE.Vector3();
     this._tmpQ = new THREE.Quaternion();
+    // scratch for the contact solver: it runs per corner per body per frame,
+    // and a few hundred bricks settling used to allocate tens of thousands of
+    // vectors a second for the collector to chase
+    this._rxn = new THREE.Vector3();
+    this._term = new THREE.Vector3();
+    this._torque = new THREE.Vector3();
+    this._rotM = new THREE.Matrix4();
+    this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
   }
 
   /**
@@ -174,7 +182,7 @@ export class RigidWorld {
     b.spin.set(o.sx ?? 0, o.sy ?? 0, o.sz ?? 0);
     b.half.set(Math.max(0.03, o.hx), Math.max(0.03, o.hy), Math.max(0.03, o.hz));
     if (o.quat) b.quat.copy(o.quat);
-    else b.quat.setFromEuler(new THREE.Euler(o.pitch ?? 0, o.yaw ?? 0, o.roll ?? 0, 'YXZ'));
+    else b.quat.setFromEuler(this._euler.set(o.pitch ?? 0, o.yaw ?? 0, o.roll ?? 0, 'YXZ'));
     b.colour.set(o.colour ?? 0x8a8a8a);
     b.restitution = o.restitution ?? 0.2;
     b.friction = o.friction ?? 0.62;
@@ -185,6 +193,7 @@ export class RigidWorld {
     b.asleep = false;
     b.still = 0;
     b.life = 0;
+    this._dirty = true;
     return b;
   }
 
@@ -202,12 +211,18 @@ export class RigidWorld {
       b.life += dt;
       if (b.life > this.life || (focus && Math.hypot(b.pos.x - focus.x, b.pos.z - focus.z) > 420)) {
         b.alive = false;
+        this._dirty = true;
         continue;
       }
       if (b.asleep) continue;
       this._integrate(b, step);
+      this._dirty = true;
     }
-    this._render();
+    // a street of settled rubble does not need its matrices re-uploaded
+    if (this._dirty) {
+      this._dirty = false;
+      this._render();
+    }
   }
 
   _integrate(b, dt) {
@@ -274,13 +289,12 @@ export class RigidWorld {
       if (vn >= 0) continue;
 
       // effective mass along the normal: 1/m + n · ((I⁻¹(r × n)) × r)
-      const rxn = new THREE.Vector3(
+      const iRxn = this._rxn.set(
         r.y * Nz - r.z * Ny,
         r.z * Nx - r.x * Nz,
         r.x * Ny - r.y * Nx
-      );
-      const iRxn = rxn.clone().applyMatrix3(invI);
-      const term = new THREE.Vector3(
+      ).applyMatrix3(invI);
+      const term = this._term.set(
         iRxn.y * r.z - iRxn.z * r.y,
         iRxn.z * r.x - iRxn.x * r.z,
         iRxn.x * r.y - iRxn.y * r.x
@@ -294,7 +308,7 @@ export class RigidWorld {
 
       imp.set(Nx * j, Ny * j, Nz * j);
       b.vel.addScaledVector(imp, b.invMass);
-      const torque = new THREE.Vector3(
+      const torque = this._torque.set(
         r.y * imp.z - r.z * imp.y,
         r.z * imp.x - r.x * imp.z,
         r.x * imp.y - r.y * imp.x
@@ -310,7 +324,7 @@ export class RigidWorld {
         const jt = Math.min(tl / denom, b.friction * j);
         imp.set((-tvx / tl) * jt, (-tvy / tl) * jt, (-tvz / tl) * jt);
         b.vel.addScaledVector(imp, b.invMass);
-        const ft = new THREE.Vector3(
+        const ft = this._torque.set(
           r.y * imp.z - r.z * imp.y,
           r.z * imp.x - r.x * imp.z,
           r.x * imp.y - r.y * imp.x
@@ -342,7 +356,7 @@ export class RigidWorld {
 
   /** R · I⁻¹ · Rᵀ for the current orientation. */
   _worldInvInertia(b) {
-    const m = new THREE.Matrix4().makeRotationFromQuaternion(b.quat);
+    const m = this._rotM.makeRotationFromQuaternion(b.quat);
     const e = m.elements;
     const ix = b.invI.x;
     const iy = b.invI.y;

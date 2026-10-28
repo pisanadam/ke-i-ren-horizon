@@ -1,4 +1,4 @@
-import { QUALITY } from '../quality.js';
+import { QUALITY, PRESET, PRESET_KEYS, PRESET_NAMES, PRESET_LIVE } from '../quality.js';
 
 const KEY = 'ankara-surus-ayarlar';
 
@@ -12,6 +12,15 @@ const KEY = 'ankara-surus-ayarlar';
  */
 const DEFS = [
   // ---------------------------------------------------------------- görüntü
+  {
+    tab: 'video', key: 'preset', label: 'Grafik profili', preset: true,
+    values: PRESET_KEYS.map((k) => ({ v: k, t: PRESET_NAMES[k] })),
+    // the one this load was built with, whichever way it was chosen
+    def: () => PRESET,
+    note: 'Düşük, Orta, Yüksek, Çok yüksek ve Ultra. Çözünürlük, gölge, yansıma ve ' +
+      'görüş mesafesi hemen değişir; bina ve ağaç sayısı, yakın apartman ayrıntısı, ' +
+      'gölge haritası ve tuğla sayısı sayfa yeniden yüklenince uygulanır.'
+  },
   {
     tab: 'video', key: 'viewDistance', label: 'Görüş mesafesi', live: true,
     values: [
@@ -179,6 +188,8 @@ export class Settings {
 
     for (const d of DEFS) this.values[d.key] = d.def();
     this._load();
+    // the panel shows the profile actually running (a ?kalite= link wins)
+    this.values.preset = PRESET;
 
     for (const b of this.el.querySelectorAll('.settings-tabs .tab')) {
       b.addEventListener('click', () => {
@@ -208,11 +219,21 @@ export class Settings {
       this._say('Performans ayarları uygulandı. Kenar yumuşatma yeni açılışta kapanır.');
     });
 
+    document.getElementById('settings-reload')?.addEventListener('click', () => {
+      this._save();
+      // a ?kalite= in the address would override the profile just picked
+      const url = new URL(window.location.href);
+      url.searchParams.delete('kalite');
+      window.location.replace(url.toString());
+    });
+
     document.getElementById('settings-reset').addEventListener('click', () => {
       for (const d of DEFS) this.values[d.key] = d.def();
+      Object.assign(this.values, PRESET_LIVE[this.values.preset] || {});
       this._save();
       this.applyAll();
       this._render();
+      this._pendingReload(this.values.preset !== PRESET);
       this._say('Varsayılan ayarlara dönüldü.');
     });
 
@@ -220,6 +241,11 @@ export class Settings {
   }
 
   get(key) { return this.values[key]; }
+
+  /** Shows the reload button while the chosen profile is not the one running. */
+  _pendingReload(on) {
+    document.getElementById('settings-reload')?.classList.toggle('hidden', !on);
+  }
 
   /**
    * What the game is actually running on.
@@ -319,6 +345,18 @@ export class Settings {
           const next = d.values[(now + 1 + d.values.length) % d.values.length];
           this.values[d.key] = next.v;
           val.textContent = next.t;
+          if (d.preset) {
+            // a profile moves every setting it covers, so the grid is redrawn
+            Object.assign(this.values, PRESET_LIVE[next.v] || {});
+            this.applyAll();
+            this._save();
+            this._render();
+            this._pendingReload(next.v !== PRESET);
+            this._say(next.v !== PRESET
+              ? `${next.t}: görüntü ayarları uygulandı. Şehrin ayrıntısı için YENİDEN YÜKLE'ye bas.`
+              : d.note);
+            return;
+          }
           this.applyAll();
           this._save();
           this._say(d.reload

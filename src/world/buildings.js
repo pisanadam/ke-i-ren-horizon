@@ -98,7 +98,8 @@ function wallBox(w, h, d, texW, texH, vOffset = 0) {
    */
   const face = (index, n, uSpan, at) => {
     const cols = Math.max(1, Math.round(uSpan * texW / CELL_W));
-    const rec = { face: index, cols, rows, bandH, cells: [], upper: null, hw, hd };
+    // texW/texH/v0 let the brick layer map the same facade onto its bricks
+    const rec = { face: index, cols, rows, bandH, cells: [], upper: null, hw, hd, texW, texH, v0 };
 
     // the reachable band, bottom row first
     for (let r = 0; r < rows; r++) {
@@ -331,6 +332,10 @@ export function buildBuildings(network, ground, colliders) {
 
           breakables.push({
             kind: 'bina', x: cx, y: gy, z: cz, rot,
+            detail: {
+              key, house: true, baseY: 0, top: hh, floors: Math.max(1, Math.round(hh / FLOOR)),
+              hw: (w * 0.7) / 2, hd: (depth * 0.72) / 2, street: side > 0 ? 3 : 2, shops: false
+            },
             height: hh, hw: (w * 0.7) / 2, hd: (depth * 0.72) / 2,
             wallW: w * 0.7, wallZ: 0, colour: 0xc2bcae,
             walls: houseWalls, bucket: key,
@@ -445,7 +450,7 @@ export function buildBuildings(network, ground, colliders) {
         // Their own generator, so adding them moves nothing else in the city.
         {
           const brng = makeRng(4049 + count * 131);
-          if (floors >= 3 && brng() < 0.82) {
+          if (QUALITY.balconies !== false && floors >= 3 && brng() < 0.82) {
             const face = side > 0 ? 3 : 2;
             const bays = Math.round(dSnap / BAY);
             const ks = bays >= 5 && QUALITY.tier !== 'mobile' ? [1, bays - 1] : [Math.floor(bays / 2)];
@@ -473,6 +478,10 @@ export function buildBuildings(network, ground, colliders) {
 
         breakables.push({
           kind: 'bina', x: cx, y: gy, z: cz, rot,
+          detail: {
+            key, house: false, baseY, top: baseY + bodyH, floors,
+            hw: wSnap / 2, hd: dSnap / 2, street: side > 0 ? 3 : 2, shops: hasShops
+          },
           height: baseY + bodyH, hw: wSnap / 2, hd: dSnap / 2,
           wallW: wSnap, wallZ: 0, colour: 0xb9b3a6,
           walls: blockWalls,
@@ -569,6 +578,8 @@ export function buildBuildings(network, ground, colliders) {
     group,
     count,
     nightMaterials: [...facadeMats, shopMat],
+    // by the key each wall records, so the brick layer can wear the same skin
+    bucketMaterials: Object.fromEntries([...FACADE_KEYS.map((k, i) => [k, facadeMats[i]]), ['shop', shopMat]]),
     materials: [...facadeMats, shopMat],
     tileSets: Object.values(sets),
     breakables: breakables.filter((b) => b.walls.length),
