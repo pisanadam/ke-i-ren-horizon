@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { clamp } from './util/math.js';
 import { findRoute } from './world/route.js';
 
 /**

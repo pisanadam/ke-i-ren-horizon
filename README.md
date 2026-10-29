@@ -553,6 +553,22 @@ ve 5 m içinde yumuşakça yamaca bağlanıyor. Yol ve kaldırım buna dokunmuyo
 oran %27'den %2,3'e indi; kalanlar bina köşesinin başka bir sokağın
 kaldırımına taştığı yerler, yani orada çim değil gerçek kaldırım var.
 
+**Hata taraması (29 Ekim).** Kaynak kod ESLint'ten geçirildi; kullanılmayan
+import ve ölü kod temizlendi. Oyun, her profilde sürüş, yaya, garaj, harita,
+yarış, tüm ayarlar, yıkım, hurdaya çıkma, gece ve çevrim içi olaylar üzerinden
+otomatik olarak koşturuldu; her adımdan sonra araç, kamera ve enkaz değerleri
+NaN için denetlendi. Bulunan ve düzeltilenler:
+- Enkaz fiziği her parçanın sekiz köşesinde zemini, değen her köşede de normali
+  ayrı ayrı soruyordu: taze bir delikte kare başına yaklaşık 6.000 zemin
+  sorgusu. Havadaki parça artık tek sorguyla eleniyor, küçük parçalarda zemin
+  merkezdeki tek bir düzlemle temsil ediliyor; sorgu 424'e, süre dörtte bire
+  indi. Durulan hiçbir tuğla zemine gömülmüyor (ölçüldü).
+- `normalAt` her çağrıda yeni bir vektör ayırıyordu; artık doldurulacak vektör
+  verilebiliyor.
+- Çevrim içi gelen yıkım olayları doğrulanmıyordu: bozuk bir olay enkaza NaN
+  sokuyor ya da tuğlaları milyonlarca metre fırlatıyordu. Artık tür, sayılar ve
+  mesafe denetleniyor, hız sınırlanıyor; geçersiz konumda parça doğmuyor.
+
 **Ara sıra kararan dünya.** iPad'de bazen yakındaki her şey simsiyah
 oluyordu, gökyüzü ise normaldi. Sebep gökyüzündeki güneş diskiydi: yaklaşık
 760.000 parlaklıkla çiziliyor, yansıma küpünün yarım hassasiyetli dokusu ise en

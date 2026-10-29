@@ -153,6 +153,7 @@ export class RigidWorld {
     this._torque = new THREE.Vector3();
     this._rotM = new THREE.Matrix4();
     this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
+    this._groundN = new THREE.Vector3();
   }
 
   /**
@@ -183,6 +184,8 @@ export class RigidWorld {
     }
 
     b.pos.set(o.x, o.y, o.z);
+    // a piece that would start somewhere impossible is not started at all
+    if (!Number.isFinite(o.x + o.y + o.z)) { b.alive = false; return b; }
     b.vel.set(o.vx ?? 0, o.vy ?? 0, o.vz ?? 0);
     b.spin.set(o.sx ?? 0, o.sy ?? 0, o.sz ?? 0);
     b.half.set(Math.max(0.03, o.hx), Math.max(0.03, o.hy), Math.max(0.03, o.hz));
@@ -263,6 +266,34 @@ export class RigidWorld {
    * a landing into a topple.
    */
   _contacts(b, dt) {
+    const ground = this.ground;
+    // A piece that is nowhere near the ground has nothing to touch. Testing
+    // that with one height query, before the eight corner queries and the
+    // normal behind each, is most of the cost of a wall's worth of bricks in
+    // the air.
+    const reach = b.half.x + b.half.y + b.half.z;
+    const h0 = ground.heightAt(b.pos.x, b.pos.z);
+    // (with room for the ground to rise under a far corner on a slope)
+    if (b.pos.y - reach > h0 + 0.05 + reach * 0.6) return;
+    if (!Number.isFinite(h0)) return;
+
+    /**
+     * A small piece — a brick, a shard of glass — is tiny next to the shape
+     * of the ground, so the ground under it is a plane: one height and one
+     * normal at its centre stand in for all eight corners. Measured, a fresh
+     * hole was six thousand height queries a frame without this. Anything
+     * car-sized still asks at every corner, because a kerb under one wheel
+     * and not the others is exactly what has to be felt.
+     */
+    const small = reach < 1.2;
+    let pnx = 0;
+    let pny = 1;
+    let pnz = 0;
+    if (small && ground.normalAt) {
+      const n = ground.normalAt(b.pos.x, b.pos.z, 1.2, this._groundN);
+      pnx = n.x; pny = Math.max(0.2, n.y); pnz = n.z;
+    }
+
     const invI = this._worldInvInertia(b);
     const r = this._tmpA;
     const cv = this._tmpB;
@@ -275,16 +306,22 @@ export class RigidWorld {
       const px = b.pos.x + r.x;
       const py = b.pos.y + r.y;
       const pz = b.pos.z + r.z;
-      const gy = this.ground.heightAt(px, pz);
+      // on the plane through the centre's ground point, for a small piece
+      const gy = small
+        ? h0 - (pnx * r.x + pnz * r.z) / pny
+        : ground.heightAt(px, pz);
       const depth = gy - py;
       if (depth <= 0) continue;
       hit = true;
       if (depth > deepest) deepest = depth;
 
-      const n = this.ground.normalAt ? this.ground.normalAt(px, pz, 1.2) : null;
-      const nx = n ? n.x : 0;
-      const ny = n ? Math.max(0.2, n.y ?? 1) : 1;
-      const nz = n ? n.z : 0;
+      let nx = pnx;
+      let ny = pny;
+      let nz = pnz;
+      if (!small && ground.normalAt) {
+        const n = ground.normalAt(px, pz, 1.2, this._groundN);
+        nx = n.x; ny = Math.max(0.2, n.y); nz = n.z;
+      }
       const nl = Math.hypot(nx, ny, nz) || 1;
       const Nx = nx / nl;
       const Ny = ny / nl;

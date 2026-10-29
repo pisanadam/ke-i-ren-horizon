@@ -6,6 +6,8 @@ import { CAR_BY_ID, CARS } from '../vehicles/catalog.js';
 import { clamp, wrapAngle } from '../util/math.js';
 
 const SEND_HZ = 15;
+/** What a co-op hit may name. */
+const HIT_KINDS = new Set(['bina', 'lamba', 'agac', 'park']);
 /**
  * How far in the past remote players are drawn.
  *
@@ -414,7 +416,17 @@ export class Coop {
   }
 
   _applyHit(ev) {
-    if (!ev || typeof ev.k !== 'string') return;
+    // Whatever arrives is somebody else's data. A hit with a missing or
+    // impossible number in it once put NaN into the rubble and flung bricks
+    // a million kilometres; it is checked here and nowhere near the world.
+    if (!ev || typeof ev !== 'object' || !HIT_KINDS.has(ev.k)) return;
+    if (typeof ev.o !== 'string' || !Number.isFinite(ev.n)) return;
+    for (const f of ['x', 'z', 'bx', 'bz', 'sp', 'vx', 'vz']) {
+      if (!Number.isFinite(ev[f])) return;
+    }
+    // the contact has to be at the thing that was hit, the blow a car's
+    if (Math.hypot(ev.bx - ev.x, ev.bz - ev.z) > 60) return;
+    ev = { ...ev, sp: clamp(ev.sp, 0, 90), vx: clamp(ev.vx, -90, 90), vz: clamp(ev.vz, -90, 90) };
     if (!this._remember(ev)) return;
     this.game.applyRemoteHit?.(ev);
   }

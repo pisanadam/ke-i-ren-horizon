@@ -43,11 +43,11 @@ const rid = () => Math.floor(Math.random() * 1e9) + 1;
 export function waitIce(pc, timeout = 3000) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve) => {
-    const done = () => {
+    function done() {
       pc.removeEventListener('icegatheringstatechange', check);
       resolve();
-    };
-    const check = () => { if (pc.iceGatheringState === 'complete') done(); };
+    }
+    function check() { if (pc.iceGatheringState === 'complete') done(); }
     pc.addEventListener('icegatheringstatechange', check);
     setTimeout(done, timeout);
   });

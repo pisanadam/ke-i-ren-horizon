@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ROADS, ROAD_TYPES, DISTRICT_GRIDS, LANDMARKS, MAP } from './mapData.js';
+import { ROADS, ROAD_TYPES, DISTRICT_GRIDS, LANDMARKS } from './mapData.js';
 import { baseHeight } from './heightfield.js';
 import { makeRng, clamp, lerp, distToSegment2, segIntersect, wrapAngle } from '../util/math.js';
 

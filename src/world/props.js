@@ -23,21 +23,6 @@ function tinted(geo, colour) {
   return geo;
 }
 
-function mergeInto(group, geos, mat, name, cast = true, receive = true) {
-  const valid = geos.filter(Boolean);
-  if (!valid.length) return null;
-  const merged = mergeGeometries(valid, false);
-  valid.forEach((g) => g.dispose());
-  if (!merged) return null;
-  const mesh = new THREE.Mesh(merged, mat);
-  mesh.castShadow = cast;
-  mesh.receiveShadow = receive;
-  mesh.name = name;
-  mesh.matrixAutoUpdate = false;
-  group.add(mesh);
-  return mesh;
-}
-
 /** Simple low-poly car used for the parked cars lining the streets. */
 function parkedCarGeo(rng, colour) {
   const parts = [];
@@ -632,8 +617,6 @@ export function buildProps(network, ground, colliders) {
 }
 
 /** Walkers that shuffle along the pavements; purely cosmetic. */
-const PED_RANGE = 260;      // how far from the car pedestrians are kept
-
 function createPedestrians(network, rng, ground) {
   return new PedestrianCrowd(network, ground, rng);
 }

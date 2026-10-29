@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { baseHeight } from './heightfield.js';
-import { MAP, LANDMARKS, RAMPS, rampAt } from './mapData.js';
+import { MAP, LANDMARKS, rampAt } from './mapData.js';
 import { clamp, lerp, smoothstep, fbm } from '../util/math.js';
 import { grassTexture } from '../textures.js';
 import { QUALITY } from '../quality.js';
@@ -150,13 +150,13 @@ export class Ground {
     return this._withPad(x, z, lerp(base, r.y - SINK, infl), r);
   }
 
-  normalAt(x, z, eps = 1.6) {
+  /** @param {THREE.Vector3} [out] filled in and returned, to spare an allocation per call */
+  normalAt(x, z, eps = 1.6, out = new THREE.Vector3()) {
     const hL = this.heightAt(x - eps, z);
     const hR = this.heightAt(x + eps, z);
     const hD = this.heightAt(x, z - eps);
     const hU = this.heightAt(x, z + eps);
-    const n = new THREE.Vector3(hL - hR, 2 * eps, hD - hU);
-    return n.normalize();
+    return out.set(hL - hR, 2 * eps, hD - hU).normalize();
   }
 
   /** Slope in radians, handy for keeping buildings off cliffs. */

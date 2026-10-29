@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mergeByTile } from './tiles.js';
 import { asphaltTexture, sidewalkTexture } from '../textures.js';
 import { baseHeight } from './heightfield.js';
