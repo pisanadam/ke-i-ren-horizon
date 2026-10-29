@@ -135,6 +135,7 @@ export class TerrainChunks {
   /** Shows the chunks around a point and hides the rest. */
   refresh(x, z) {
     const want = new Set();
+    const covered = [];
     for (const c of this._wanted(x, z)) {
       // A square the car has already visited has a fine mesh sitting there;
       // once it is on the horizon the coarse one is the right one to show, and
@@ -146,8 +147,13 @@ export class TerrainChunks {
         : (this.chunks.has(coarse) ? coarse : fine);
       want.add(k);
       const m = this.chunks.get(k);
-      if (m) m.visible = true;
+      if (m) {
+        m.visible = true;
+        covered.push([c.ix, c.iz]);
+      }
     }
+    // the backdrop steps out of the way wherever there is real ground now
+    this.ground.maskBackdrop?.(Math.floor(x / this.size), Math.floor(z / this.size), this.size, covered);
     for (const k of this._visible) {
       if (want.has(k)) continue;
       const m = this.chunks.get(k);

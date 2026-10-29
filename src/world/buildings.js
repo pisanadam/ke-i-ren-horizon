@@ -341,6 +341,8 @@ export function buildBuildings(network, ground, colliders) {
             walls: houseWalls, bucket: key,
             box: colliders.add(cx, cz, (w * 0.7) / 2, (depth * 0.72) / 2, rot)
           });
+          // the plot is levelled to the floor, not left as a slope under it
+          ground.addPad?.(cx, cz, (w * 0.7) / 2 + 0.4, (depth * 0.72) / 2 + 0.4, rot, gy);
           remember(cx, cz, Math.max(w, depth) * 0.52);
           placed.push({ x: cx, z: cz, w: w * 0.7, d: depth * 0.72, h: hh, rot });
           count++;
@@ -487,6 +489,7 @@ export function buildBuildings(network, ground, colliders) {
           walls: blockWalls,
           box: colliders.add(cx, cz, wSnap / 2, dSnap / 2, rot)
         });
+        ground.addPad?.(cx, cz, wSnap / 2 + (hasShops ? 0.75 : 0.4), dSnap / 2 + (hasShops ? 0.75 : 0.4), rot, gy);
         remember(cx, cz, Math.max(wSnap, dSnap) * 0.52);
         placed.push({ x: cx, z: cz, w: wSnap, d: dSnap, h: baseY + bodyH, rot });
         count++;

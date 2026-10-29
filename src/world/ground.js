@@ -21,10 +21,78 @@ const TONE = {
   rock: new THREE.Color(0x8a8172)
 };
 
+/** How far round a building the ground eases back into the hillside. */
+const PAD_BLEND = 5;
+const PAD_CELL = 40;
+/** The most chunks out from the car the detail ring ever reaches, either way. */
+const MASK_R = 5;
+const MASK_N = MASK_R * 2 + 1;
+
 export class Ground {
   constructor(network) {
     this.net = network;
     this.mesh = null;
+    /** Level building plots, filed by a coarse grid. */
+    this._pads = new Map();
+  }
+
+  /**
+   * Levels the ground under a building.
+   *
+   * A block is placed at the height of the hillside under its middle, and the
+   * hillside carries on sloping underneath it: on the uphill side the grass
+   * came up through the ground floor and over the shop windows (measured: a
+   * quarter of all building corners buried, the worst by nearly four
+   * metres), and driving into a breached block meant driving up a grassy
+   * bank inside it. A plot is cut level to the building's floor and eased back
+   * into the slope over a few metres round it, the way a real one is.
+   */
+  addPad(x, z, hw, hd, rot, y) {
+    const pad = { x, z, hw, hd, cos: Math.cos(rot), sin: Math.sin(rot), y };
+    const r = Math.hypot(hw, hd) + PAD_BLEND;
+    for (let ix = Math.floor((x - r) / PAD_CELL); ix <= Math.floor((x + r) / PAD_CELL); ix++) {
+      for (let iz = Math.floor((z - r) / PAD_CELL); iz <= Math.floor((z + r) / PAD_CELL); iz++) {
+        const k = ix * 100003 + iz;
+        let arr = this._pads.get(k);
+        if (!arr) this._pads.set(k, (arr = []));
+        arr.push(pad);
+      }
+    }
+  }
+
+  /**
+   * How much a building plot claims this point, 0..1, and its level (left in
+   * `_padY`). Applied after the blend into the road, not before: next to a
+   * road that climbs past a block, that blend is what was dragging the
+   * ground up through the shop floor.
+   */
+  _padWeight(x, z) {
+    const arr = this._pads.get(Math.floor(x / PAD_CELL) * 100003 + Math.floor(z / PAD_CELL));
+    if (!arr) return 0;
+    let best = 0;
+    for (const p of arr) {
+      const dx = x - p.x;
+      const dz = z - p.z;
+      // building frame, as in colliders.js
+      const ex = Math.max(0, Math.abs(dx * p.cos - dz * p.sin) - p.hw);
+      const ez = Math.max(0, Math.abs(dx * p.sin + dz * p.cos) - p.hd);
+      const d = Math.hypot(ex, ez);
+      if (d >= PAD_BLEND) continue;
+      const w = 1 - smoothstep(0, PAD_BLEND, d);
+      if (w > best) { best = w; this._padY = p.y - 0.04; }
+    }
+    return best;
+  }
+
+  /** Cuts any building plot into a height, keeping off the road and pavement. */
+  _withPad(x, z, h, r) {
+    let w = this._padWeight(x, z);
+    if (w <= 0) return h;
+    if (r) {
+      const outer = r.walkOuter || r.halfWidth;
+      w *= smoothstep(outer, outer + 1.5, r.dist);
+    }
+    return lerp(h, this._padY, w);
   }
 
   /**
@@ -50,6 +118,10 @@ export class Ground {
 
   _surface(x, z) {
     const r = this.net.nearestRoad(x, z);
+    return this._withPad(x, z, this._roadSurface(x, z, r), r);
+  }
+
+  _roadSurface(x, z, r) {
     const base = baseHeight(x, z);
     if (!r) return base;
     if (r.dist <= r.halfWidth) return r.y;
@@ -72,10 +144,10 @@ export class Ground {
   terrainHeight(x, z) {
     const r = this.net.nearestRoad(x, z);
     const base = baseHeight(x, z);
-    if (!r) return base;
+    if (!r) return this._withPad(x, z, base, null);
     const outer = r.walkOuter || r.halfWidth;
     const infl = smoothstep(outer + CORRIDOR, r.halfWidth * 0.6, r.dist);
-    return lerp(base, r.y - SINK, infl);
+    return this._withPad(x, z, lerp(base, r.y - SINK, infl), r);
   }
 
   normalAt(x, z, eps = 1.6) {
@@ -177,6 +249,70 @@ export class Ground {
   }
 
   /**
+   * The backdrop's material: the shared ground, with a hole wherever a
+   * detailed patch has been laid.
+   *
+   * The backdrop is sixty to a hundred metres a triangle and knows nothing of
+   * roads, and it was always drawn — under the detailed ground, and through
+   * it wherever a road is cut into a hill. Measured, at one road point in six
+   * the backdrop stood above the tarmac, by up to almost three metres: the
+   * walls of grass you drove straight through. Now each square the detailed
+   * ground covers is cut out of it, so under the car there is only the ground
+   * that was shaped around the road.
+   */
+  _backdropMaterial() {
+    if (this._backMat) return this._backMat;
+    const mat = this.material().clone();
+    this._mask = {
+      uMaskOrigin: { value: new THREE.Vector2(1e6, 1e6) },
+      uMaskSize: { value: 620 },
+      uMask: { value: new Float32Array(MASK_N * MASK_N) }
+    };
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, this._mask);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+varying vec2 vGroundXZ;
+uniform vec2 uMaskOrigin;
+uniform float uMaskSize;
+uniform float uMask[${MASK_N * MASK_N}];`)
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+{
+  vec2 cell = floor(vGroundXZ / uMaskSize) - uMaskOrigin;
+  if (cell.x >= 0.0 && cell.y >= 0.0 && cell.x < ${MASK_N}.0 && cell.y < ${MASK_N}.0) {
+    if (uMask[int(cell.y) * ${MASK_N} + int(cell.x)] > 0.5) discard;
+  }
+}`);
+    };
+    mat.customProgramCacheKey = () => 'terrain-backdrop';
+    this._backMat = mat;
+    return mat;
+  }
+
+  /**
+   * Tells the backdrop which squares have detailed ground showing.
+   * @param {number} cx @param {number} cz the car's square
+   * @param {number} size square size in metres
+   * @param {Array<[number, number]>} covered squares with a patch visible
+   */
+  maskBackdrop(cx, cz, size, covered) {
+    this._backdropMaterial();
+    const m = this._mask;
+    m.uMaskOrigin.value.set(cx - MASK_R, cz - MASK_R);
+    m.uMaskSize.value = size;
+    const a = m.uMask.value;
+    a.fill(0);
+    for (const [ix, iz] of covered) {
+      const i = ix - (cx - MASK_R);
+      const j = iz - (cz - MASK_R);
+      if (i >= 0 && j >= 0 && i < MASK_N && j < MASK_N) a[j * MASK_N + i] = 1;
+    }
+  }
+
+  /**
    * Coarse hillside covering the whole world, built once. The detailed
    * patches sit on top of it near the player; further out this is all there
    * is, which is what fills the horizon with Ankara's hills.
@@ -207,7 +343,7 @@ export class Ground {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
-    this.mesh = new THREE.Mesh(geo, this.material());
+    this.mesh = new THREE.Mesh(geo, this._backdropMaterial());
     this.mesh.receiveShadow = true;
     this.mesh.name = 'terrain-backdrop';
     this.mesh.matrixAutoUpdate = false;

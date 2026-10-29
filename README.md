@@ -539,6 +539,20 @@ başına doldurulan piksel sayısını 1,78 kat azaltıyor; kenar yumuşatmanın
 kapanması yeni açılışta geçerli olur (çoklu örnekleme bağlam kurulurken
 seçiliyor, sonradan değiştirilemiyor).
 
+**İçinden geçilen çimler.** Uzaktaki tepeleri çizen kaba zemin (60–110 m'lik
+üçgenler) yolları bilmiyor ve her zaman çiziliyordu. Yol bir tepeyi yararak
+geçtiği yerde bu zemin asfaltın üstüne çıkıyordu. Ölçüldü: yol noktalarının
+%16'sında, en kötü yerde 2,84 m. Arabayla içinden geçilen çim duvarlar
+bunlardı. Artık ayrıntılı zeminin döşendiği her kare bu kaba zeminden kesilip
+çıkarılıyor; aradaki fark gölgelendiricide (shader) kare kare yapılıyor. Ölçümde
+ayrıntılı zemin olan karelerde yolun üstünde çim kalmadı. Binalar da eğimli
+arazide yamacın içine gömülüyordu: köşelerin dörtte birinde çim zemin kata
+ya da dükkân camına çıkıyordu (en kötü 3,85 m) ve delinen binanın içinde
+çimenli bir şev vardı. Artık her bina arsası kendi tabanı hizasında düzleniyor
+ve 5 m içinde yumuşakça yamaca bağlanıyor. Yol ve kaldırım buna dokunmuyor. Bu
+oran %27'den %2,3'e indi; kalanlar bina köşesinin başka bir sokağın
+kaldırımına taştığı yerler, yani orada çim değil gerçek kaldırım var.
+
 **Ara sıra kararan dünya.** iPad'de bazen yakındaki her şey simsiyah
 oluyordu, gökyüzü ise normaldi. Sebep gökyüzündeki güneş diskiydi: yaklaşık
 760.000 parlaklıkla çiziliyor, yansıma küpünün yarım hassasiyetli dokusu ise en
