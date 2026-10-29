@@ -95,6 +95,12 @@ export class Reflections {
     // with their own envMapIntensity.
     this.intensity = 0.10;
     scene.environmentIntensity = this.intensity;
+
+    /** The sky's material, so the sun disc can be left out of a capture. */
+    this.skyMaterial = null;
+    /** How many captures have come out broken; three and reflections go. */
+    this.failures = 0;
+    this._sinceCheck = 0;
   }
 
   /** @param {'kapalı'|'gökyüzü'|'dinamik'} mode */
@@ -124,6 +130,14 @@ export class Reflections {
   update(dt, focus, hour) {
     if (this.mode === 'kapalı') return;
     this._timer += dt;
+    // Not only the first map gets checked. A capture that goes wrong later —
+    // the light has moved, the cube looks somewhere else — blacks the world
+    // out just the same, so the check comes round again every so often.
+    this._sinceCheck += dt;
+    if (this.checked && this._sinceCheck > 20) {
+      this._sinceCheck = 0;
+      this.checked = false;
+    }
 
     const sky = this.mode === 'gökyüzü';
     // The sky alone only needs re-grabbing when the light has moved; a
@@ -150,7 +164,23 @@ export class Reflections {
     const renderer = this.renderer;
     const shadows = renderer.shadowMap.enabled;
     renderer.shadowMap.enabled = false;      // no shadow pass for a blurred cube
+    /**
+     * The sun disc stays out of the capture.
+     *
+     * The sky draws it at about 760,000 — far past the 65,504 a half-float
+     * cube face can hold — so a probe pixel that happens to land on it stores
+     * infinity, and the PMREM blur turns infinity into NaN across the whole
+     * map. A NaN in the environment makes every lit surface black: the
+     * picture from the iPad, near city pitch dark under a normal sky. The
+     * disc is half a degree across and a probe pixel about one and a half,
+     * which is why it only happened some of the time. The sunlight itself
+     * comes from the directional light, so the map loses nothing it needs.
+     */
+    const disc = this.skyMaterial?.uniforms?.showSunDisc;
+    const discWas = disc?.value;
+    if (disc) disc.value = 0;
     this.cubeCam.update(renderer, this.scene);
+    if (disc) disc.value = discWas;
     renderer.shadowMap.enabled = shadows;
 
     this.target = this.pmrem.fromCubemap(this.cubeRT.texture, this.target);
@@ -210,9 +240,20 @@ export class Reflections {
     renderer.setRenderTarget(was);
     probe.dispose();
     if (!ok) {
+      this.failures++;
+      // Never leave the world dark while finding out: the map comes off now.
+      this.scene.environment = null;
+      if (this.failures < 3) {
+        // One bad capture is not a broken device. Grab a fresh one straight
+        // away and check that too.
+        this._timer = 1e9;
+        this._lastHour = -99;
+        this._lastX = 1e9;
+        this.checked = false;
+        return true;
+      }
       this.broken = true;
       this.setMode('kapalı');
-      this.scene.environment = null;
     }
     return ok;
   }

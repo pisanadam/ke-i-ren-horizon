@@ -539,6 +539,18 @@ başına doldurulan piksel sayısını 1,78 kat azaltıyor; kenar yumuşatmanın
 kapanması yeni açılışta geçerli olur (çoklu örnekleme bağlam kurulurken
 seçiliyor, sonradan değiştirilemiyor).
 
+**Ara sıra kararan dünya.** iPad'de bazen yakındaki her şey simsiyah
+oluyordu, gökyüzü ise normaldi. Sebep gökyüzündeki güneş diskiydi: yaklaşık
+760.000 parlaklıkla çiziliyor, yansıma küpünün yarım hassasiyetli dokusu ise en
+fazla 65.504 tutabiliyor. Küpün bir pikseli diske denk gelince sonsuz kaydediliyor,
+bulanıklaştırma adımı bunu bütün haritaya NaN olarak yayıyor ve aydınlatılan her
+yüzey siyaha dönüyor. Disk yarım derece, küp pikseli bir buçuk derece olduğu için
+bu yalnızca güneşin bazı konumlarında oluyordu (ölçüldü: dört yönden birinde 2
+sonsuz piksel, sahne parlaklığı 79'dan 40,7'ye düşüyor). Artık küp çekilirken
+güneş diski gizleniyor; güneş ışığını zaten yönlü ışık veriyor. Ortam haritası
+da yalnızca ilk seferde değil, 20 saniyede bir yeniden sınanıyor. Bozuk çıkarsa
+hemen kaldırılıp yeniden çekiliyor, üç kez bozuk çıkarsa yansımalar kapatılıyor.
+
 **Yansıma sondası.** Araç boyasının yansıttığı ortam haritası altı sahne
 çizimiyle alınıyor. Eskiden araba altı metre gittiğinde yenileniyordu: 60
 km/s'te on saniyede 28 yakalama, yani saniyede 17 fazladan sahne çizimi — hepsi

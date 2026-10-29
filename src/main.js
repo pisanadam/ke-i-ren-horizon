@@ -342,6 +342,7 @@ class Game {
     // renders of the whole city would cost more than the reflection is worth,
     // and a car that reflects itself looks wrong anyway.
     this.reflections = new Reflections(this.renderer, this.scene);
+    this.reflections.skyMaterial = this.skyEnv.sky.material;
     markReflective(this.skyEnv.sky, true);
     markReflective(this.skyEnv.stars, true);
     markReflective(this.skyEnv.moon, true);
@@ -1781,9 +1782,9 @@ class Game {
       this.reflections.update(
         dt, onFoot ? this.onFoot.position : this.vehicle.position, this.skyEnv.hour
       );
-      // The first environment map the game builds gets checked before it is
-      // trusted. On a stack where it comes out broken the whole world renders
-      // unlit, and that is not a thing to ship and hope about.
+      // The environment map gets checked before it is trusted, and again
+      // every so often after. On a stack where it comes out broken the whole
+      // world renders unlit, and that is not a thing to ship and hope about.
       if (this.reflections.target && !this.reflections.checked) {
         if (!this.reflections.selfTest(this.camera)) {
           this.hud?.showToast('Yansımalar bu cihazda çalışmadı, kapatıldı', 3.4);
