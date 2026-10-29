@@ -55,13 +55,14 @@ export function brickMaterial(material, { facade }) {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute float aVar;
-${facade ? 'attribute vec4 aUvRect;' : 'attribute float aFade;\nvarying float vFade;'}
+${facade ? 'attribute vec4 aUvRect;\nattribute vec3 aCol;' : 'attribute float aFade;\nvarying float vFade;'}
 varying vec3 vBrick;
+varying vec3 vBrickCol;
 varying float vBrickVar;`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
 vBrick = position;
 vBrickVar = aVar;
-${facade ? '' : 'vFade = aFade;'}
+${facade ? 'vBrickCol = aCol;' : 'vFade = aFade;\nvBrickCol = vec3(1.0);'}
 ${facade ? `vec2 brickUv = aUvRect.xy + (position.xy + 0.5) * aUvRect.zw;
 #ifdef USE_MAP
 vMapUv = (mapTransform * vec3(brickUv, 1.0)).xy;
@@ -74,6 +75,7 @@ vEmissiveMapUv = (emissiveMapTransform * vec3(brickUv, 1.0)).xy;
       .replace('#include <common>', `#include <common>
 uniform vec3 uPlaster;
 varying vec3 vBrick;
+varying vec3 vBrickCol;
 varying float vBrickVar;
 ${facade ? '' : 'varying float vFade;'}`)
       .replace(anchor, `${anchor}
@@ -85,8 +87,12 @@ if (vFade < 0.999) {
 }`}
 float brickOuter = step(0.4995, vBrick.z);
 {
-  vec3 plaster = ${facade ? 'uPlaster' : 'diffuseColor.rgb'};
-  vec3 clay = mix(vec3(0.30, 0.065, 0.025), vec3(0.56, 0.15, 0.06), vBrickVar);
+  // A brick is the colour of the piece of apartment it was: off the white
+  // plaster it is white, off a window pane it is black, off a frame it is
+  // the frame. The faces that were never outside are the same colour,
+  // shaded a little darker so the brick still reads as a solid.
+  vec3 plaster = ${facade ? 'vBrickCol' : 'diffuseColor.rgb'};
+  vec3 clay = plaster * mix(0.74, 0.9, vBrickVar);
   // hollow-brick webs: the end faces of a Turkish brick are a grid of holes
   float endFace = step(0.4995, abs(vBrick.x));
   vec2 web = fract(vec2(vBrick.z * 4.0 + 0.5, vBrick.y * 3.0 + 0.5));
@@ -94,10 +100,10 @@ float brickOuter = step(0.4995, vBrick.z);
   clay *= 1.0 - hole * 0.72;
   // mortar round the edge of every face that is not the skin
   float joint = max(step(0.47, abs(vBrick.x)), step(0.44, abs(vBrick.y)));
-  vec3 side = mix(clay, vec3(0.34, 0.32, 0.28), joint * (1.0 - endFace));
+  vec3 side = mix(clay, plaster * 0.62, joint * (1.0 - endFace));
   side = mix(side, plaster, step(0.5 - ${PLASTER.toFixed(4)}, vBrick.z));
-  // the room side is plastered too, lighter and plain
-  side = mix(side, vec3(0.58, 0.55, 0.5), step(vBrick.z, -0.4995));
+  // the room side, plain
+  side = mix(side, plaster * 0.86, step(vBrick.z, -0.4995));
   diffuseColor.rgb = mix(side, diffuseColor.rgb, brickOuter);
 }`);
     if (facade) {
@@ -116,6 +122,8 @@ function brickGeometry(capacity, facade) {
   geo.setAttribute('aVar', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1));
   if (facade) {
     geo.setAttribute('aUvRect', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4));
+    // the colour of the bit of facade each brick was cut from (linear)
+    geo.setAttribute('aCol', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3));
   }
   return geo;
 }
@@ -127,6 +135,55 @@ export function rubbleGeometry(capacity) {
   for (let i = 0; i < capacity; i++) v[i] = Math.random();
   geo.setAttribute('aFade', new THREE.InstancedBufferAttribute(new Float32Array(capacity).fill(1), 1));
   return geo;
+}
+
+/**
+ * The pixels of a facade texture, read once, so a brick can be given the
+ * colour of exactly the patch of apartment it stands in for.
+ */
+function facadePixels(tex) {
+  const img = tex?.image;
+  if (!img || !img.width) return null;
+  if (img._px) return img._px;
+  try {
+    const c = img.getContext ? img : null;
+    const ctx = c?.getContext('2d');
+    if (!ctx) return null;
+    img._px = { w: img.width, h: img.height, d: ctx.getImageData(0, 0, img.width, img.height).data };
+  } catch {
+    img._px = null;
+  }
+  return img._px;
+}
+
+const _lum = [];
+/**
+ * The colour of a rectangle of facade, as an sRGB hex.
+ *
+ * Not the average: a brick straddling a white jamb and a dark pane would
+ * come out a grey that is on neither. A grid of samples is taken and the
+ * one in the middle by brightness wins, which is always a colour that is
+ * really there — the white of the wall, the black of the glass.
+ */
+function sampleFacade(px, u0, v0, du, dv, fallback) {
+  if (!px) return fallback;
+  _lum.length = 0;
+  for (let j = 0; j < 3; j++) {
+    for (let i = 0; i < 4; i++) {
+      const u = u0 + du * (i + 0.5) / 4;
+      const v = v0 + dv * (j + 0.5) / 3;
+      const x = Math.min(px.w - 1, Math.floor((((u % 1) + 1) % 1) * px.w));
+      // canvas textures are flipped: v = 1 is the top row
+      const y = Math.min(px.h - 1, Math.floor((1 - (((v % 1) + 1) % 1)) * px.h));
+      const k = (y * px.w + x) * 4;
+      const r = px.d[k];
+      const g = px.d[k + 1];
+      const b = px.d[k + 2];
+      _lum.push({ l: r * 0.3 + g * 0.59 + b * 0.11, hex: (r << 16) | (g << 8) | b });
+    }
+  }
+  _lum.sort((a, b) => a.l - b.l);
+  return _lum[_lum.length >> 1].hex;
 }
 
 /**
@@ -208,7 +265,11 @@ export class Masonry {
     mesh.count = 0;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.scene.add(mesh);
-    L = { mesh, cap, used: 0, free: [], plaster: new THREE.Color(pal.wall).getHex(), facade: !!src?.map };
+    L = {
+      mesh, cap, used: 0, free: [], facade: !!src?.map,
+      plaster: new THREE.Color(pal.wall).getHex(),
+      px: facadePixels(src?.map)
+    };
     this.layers.set(bucket, L);
     return L;
   }
@@ -372,6 +433,7 @@ export class Masonry {
     const geo = L.mesh.geometry;
     const varA = geo.attributes.aVar;
     const uvA = geo.attributes.aUvRect;
+    const colA = geo.attributes.aCol;
     const len = st.cw / st.perBrick;
     const left = c * st.cw;
     for (let r = 0; r < st.rows; r++) {
@@ -380,14 +442,26 @@ export class Masonry {
         const b = { u: a + l / 2, len: l, alive: true, idx: -1, luck: luckAt(item, wall.face, r, a + l / 2) };
         b.idx = this._alloc(L);
         varA.array[b.idx] = Math.random();
+        // the patch of facade this brick stands in for
+        const texW = wall.texW ?? 13.6;
+        const texH = wall.texH ?? 12;
+        const u0 = a / texW;
+        const v0 = (wall.v0 ?? 0) + (r * st.rowH) / texH;
+        const du = l / texW;
+        const dv = st.rowH / texH;
         if (uvA) {
-          // the patch of facade this brick stands in for
-          const texW = wall.texW ?? 13.6;
-          const texH = wall.texH ?? 12;
-          uvA.array[b.idx * 4] = a / texW;
-          uvA.array[b.idx * 4 + 1] = (wall.v0 ?? 0) + (r * st.rowH) / texH;
-          uvA.array[b.idx * 4 + 2] = l / texW;
-          uvA.array[b.idx * 4 + 3] = st.rowH / texH;
+          uvA.array[b.idx * 4] = u0;
+          uvA.array[b.idx * 4 + 1] = v0;
+          uvA.array[b.idx * 4 + 2] = du;
+          uvA.array[b.idx * 4 + 3] = dv;
+        }
+        // and the colour it is, all the way through
+        b.colour = sampleFacade(L.px, u0, v0, du, dv, L.plaster);
+        if (colA) {
+          this._c.setHex(b.colour);
+          colA.array[b.idx * 3] = this._c.r;
+          colA.array[b.idx * 3 + 1] = this._c.g;
+          colA.array[b.idx * 3 + 2] = this._c.b;
         }
         this._place(item, wall, st, L, b, r);
         row.push(b);
@@ -405,6 +479,7 @@ export class Masonry {
     L.mesh.instanceMatrix.needsUpdate = true;
     varA.needsUpdate = true;
     if (uvA) uvA.needsUpdate = true;
+    if (colA) colA.needsUpdate = true;
   }
 
   /** True where course `r` has something solid at `u`. */
@@ -522,7 +597,8 @@ export class Masonry {
         x: this._p.x, y: this._p.y, z: this._p.z,
         hx: b.len / 2, hy: st.rowH / 2, hz: THICK / 2,
         yaw,
-        colour: L.plaster,
+        // falls the colour of the part of the building it came out of
+        colour: b.colour ?? L.plaster,
         mass: 4.2 * (b.len / BRICK),
         fadeAt,
         fadeFor,

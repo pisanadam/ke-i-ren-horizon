@@ -313,16 +313,20 @@ bölge, Ankara apartmanlarının sıvasının altındaki gibi şaşırtmalı ör
 tuğla sıralarıyla (≈42 × 21 cm, 24 cm kalınlık) sessizce yeniden kurulur. Her
 tuğlanın dış yüzü, yerini aldığı cephe parçasını taşır: aynı doku, aynı
 pencereler ve gece aynı ışıklar. Tuğlalar derzsiz ve cepheyle aynı hizada
-dizildiği için bina dışarıdan apartman olarak kalır. Tuğla yalnızca kopan
-yerlerde görünür: kırık kenarda 2,5 cm'lik sıva tabakası, arkasında harç
-çizgileri arasında tuğla ve uçlarında delikli tuğlanın gözleri. İç yüz açık
-renkli iç sıvadır. Tamponun ulaştığı tuğlalar pürüzlü bir kenarla yerinden
+dizildiği için bina dışarıdan apartman olarak kalır. Tuğlalar
+binanın kendi parçasıdır: her tuğla, yerini aldığı cephe parçasının rengindedir,
+içi de dışı da. Beyaz sıvadan kopan tuğla beyaz, pencere camından kopan
+siyah, çerçeveden kopan çerçeve rengindedir. Renk, cephe dokusundan tuğla başına
+alınan örneklerin parlaklıkça ortadakidir; ortalama değildir, bu yüzden cam ile
+sıvanın sınırındaki tuğla gri değil, gerçekten orada olan iki renkten biri
+çıkar. Kırık kenarlarda tuğlanın yan yüzleri aynı rengin biraz koyusudur, derzler
+ve delikli tuğla gözleri bu renk üzerinde gölge olarak görünür. Tamponun ulaştığı tuğlalar pürüzlü bir kenarla yerinden
 sökülür ve aracın hızıyla binanın içine fırlar.
 ardından her sıra yeniden taşıyıcı arar — bir tuğla ya alttakinin üstünde durur
 ya da komşuları onu en fazla bir tuğla boyu boşluğa taşıyabilir. Bu yüzden
 deliğin üstü kendiliğinden kademeli bir kemer biçiminde çöker, kenarda kalan
 tuğlalar da birkaç santim kayarak sıvada kılcal çatlaklar açar. Düşen her
-parçanın bir yüzü sıva, kalanı tuğladır. Parçalar kendi rijit gövde havuzlarında
+parça, koptuğu yerin rengindedir. Parçalar kendi rijit gövde havuzlarında
 yere çarpar ve devrilir. Aracın fırlattığı tuğlalar 2,5–6 saniye yerde kalır,
 sonra 2–4 saniye içinde ekranda eriyerek yavaşça kaybolur. Duvarın üstünden
 çöken tuğlaların yaklaşık yarısı daha düşerken erir; kalanlar delik önünde yığın
